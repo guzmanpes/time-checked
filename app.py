@@ -64,8 +64,8 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Finds today's day number (e.g. '20') in the calendar sheet and scans a 
-    3x3 neighborhood around it to catch names in merged/offset cells.
+    Locates the column of today's date number (e.g., '20') and reads strictly 
+    down that single column to find the duty name.
     """
     day_num = str(now_datetime.day)
     tab_candidates = ["OCT", "OCTOBER", "October 2026", "October"]
@@ -75,26 +75,22 @@ def get_daily_responsibility(cal_id, now_datetime):
             url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={month_tab}"
             df = pd.read_csv(url, header=None).fillna("").astype(str)
             
-            # Step 1: Scan grid for exact day number '20'
+            # Step 1: Search grid for exact day number '20'
             for r_idx in range(len(df)):
                 for c_idx in range(len(df.columns)):
                     val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
                     
                     if val == day_num:
-                        # Step 2: Scan rows below (offsets +1 to +3) across neighbor columns (c_idx-1 to c_idx+1)
-                        for r_offset in [1, 2, 3]:
-                            for c_offset in [0, -1, 1]:
-                                target_row = r_idx + r_offset
-                                target_col = c_idx + c_offset
+                        # Step 2: Strictly scan DOWN the SAME column (c_idx)
+                        for r_offset in range(1, 4):
+                            if r_idx + r_offset < len(df):
+                                cell_text = str(df.iloc[r_idx + r_offset, c_idx]).strip()
                                 
-                                if 0 <= target_row < len(df) and 0 <= target_col < len(df.columns):
-                                    cell_text = str(df.iloc[target_row, target_col]).strip()
-                                    
-                                    # Must contain letters (e.g. 'Genesis') and skip headers/numbers
-                                    if any(c.isalpha() for c in cell_text):
-                                        ignored = ['nan', 'none', 'null', 'oct', 'october', '2026', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-                                        if cell_text.lower() not in ignored:
-                                            return cell_text
+                                # Ignore blanks, zeroes, and headers
+                                if cell_text and cell_text.lower() not in ['nan', 'none', 'null', '0', 'nan.0']:
+                                    # Ignore next week's date if empty duty
+                                    if not cell_text.replace('.', '').isdigit():
+                                        return cell_text
         except Exception:
             continue
             
