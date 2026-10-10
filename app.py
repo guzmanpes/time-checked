@@ -68,7 +68,8 @@ def get_daily_responsibility(cal_id, now_datetime):
     finds today's day number, and returns the text in the row below it.
     """
     # Formats tab name to match calendar tabs (e.g. Oct26, Nov26)
-    month_tab = now_datetime.strftime("%b%y")
+    # NEW (searches for "October 2026")
+month_tab = now_datetime.strftime("%B %Y")
     day_num = str(now_datetime.day)
     
     try:
