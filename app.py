@@ -1,12 +1,12 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date  # <--- MUST HAVE BOTH datetime AND date HERE
+from datetime import datetime, date
 import pytz
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", initial_sidebar_state="collapsed")
 
-# --- 2. SETTINGS ---
+# --- 2. SETTINGS & SHEET IDs ---
 SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
 CALENDAR_SHEET_ID = "1tVm6iLZqci_fKVv9zmN0fd_pJ7doAC-fv4A-dYNGomM"
 
@@ -64,19 +64,17 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Pulls the current month's tab from the viewer-only calendar spreadsheet,
-    finds today's day number, and returns the text in the row below it.
+    Pulls current month's tab (e.g., 'October 2026') from the viewer-only 
+    calendar spreadsheet, finds today's day number, and returns the text below it.
     """
-    # Formats tab name to match calendar tabs (e.g. Oct26, Nov26)
-    # NEW (searches for "October 2026")
-month_tab = now_datetime.strftime("%B %Y")
+    month_tab = now_datetime.strftime("%B %Y")
     day_num = str(now_datetime.day)
     
     try:
-        url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={month_tab}"
+        safe_month_tab = month_tab.replace(" ", "%20")
+        url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={safe_month_tab}"
         df = pd.read_csv(url, header=None).astype(str)
         
-        # Search grid for day number
         for r_idx, row in df.iterrows():
             for c_idx, val in enumerate(row):
                 if val.strip() == day_num:
@@ -84,10 +82,11 @@ month_tab = now_datetime.strftime("%B %Y")
                         resp = df.iloc[r_idx + 1, c_idx].strip()
                         if resp.lower() not in ['nan', 'none', '', 'null']:
                             return resp
-        return "None"
+        return "None Assigned"
     except Exception:
-        return "N/A"
+        return "Calendar Unavailable"
 
+# --- 5. ROTATION DAY CALCULATION ---
 def get_current_rotation_day(today_date, anchor_date):
     if today_date < anchor_date:
         return "Day 1"
@@ -96,11 +95,16 @@ def get_current_rotation_day(today_date, anchor_date):
     rotation_num = ((total_school_days - 1) % 10) + 1
     return f"Day {rotation_num}"
 
-# --- 5. DASHBOARD MAIN LOOP ---
+# --- 6. DASHBOARD MAIN LOOP ---
 @st.fragment(run_every=5)
 def update_dashboard():
     local_tz = pytz.timezone('US/Pacific') 
-    # MOCK TIME: Forces the app to simulate Tuesday at 10:15 AM
+    
+    # ------------------------------------------------------------------
+    # MOCK TIME FOR WEEKEND TESTING (Tuesday, October 20, 2026 @ 10:15 AM)
+    # To return to real live time later, change this line to:
+    # now = datetime.now(local_tz)
+    # ------------------------------------------------------------------
     now = local_tz.localize(datetime(2026, 10, 20, 10, 15, 0))
     
     current_date_str = now.strftime("%B %d, %Y")
@@ -113,6 +117,7 @@ def update_dashboard():
     else:
         display_day = f"{current_day_of_week} ({current_sheet})"
 
+    # Calculate 5-minute time slot using 'now'
     rounded_minute = (now.minute // 5) * 5
     current_slot = now.replace(minute=rounded_minute, second=0, microsecond=0).strftime("%H:%M")
 
@@ -130,7 +135,7 @@ def update_dashboard():
         df = pd.read_csv(url).astype(object)
         df.columns = df.columns.str.strip()
     except Exception:
-        st.error(f"Error connecting to Google Sheet tab: '{current_sheet}'.")
+        st.error(f"Error connecting to Google Sheet tab: '{current_sheet}'. Please verify tab exists.")
         return
 
     time_col = next((col for col in df.columns if col.lower() == 'time'), None)
@@ -139,37 +144,4 @@ def update_dashboard():
         df[time_col] = df[time_col].astype(str).str.strip()
         match = df[df[time_col].str.contains(current_slot, na=False)]
 
-        if not match.empty:
-            all_cols = [c for c in df.columns if c != time_col and "Unnamed" not in c]
-            
-            top_tier = [c for c in all_cols if c.upper() in ["TK", "K"]]
-            mid_tier = [c for c in all_cols if any(x in c.upper() for x in ["1ST", "2ND", "3RD"])]
-            bot_tier = [c for c in all_cols if any(x in c.upper() for x in ["4TH", "5TH"])]
-            used_cols = top_tier + mid_tier + bot_tier
-            other_tier = [c for c in all_cols if c not in used_cols]
-
-            def render_row(teams_list):
-                if teams_list:
-                    cols = st.columns(len(teams_list))
-                    for i, team in enumerate(teams_list):
-                        with cols[i]:
-                            val = str(match[team].values[0]).strip("[]'\"")
-                            if val.lower() in ['nan', 'none', '']: val = "---"
-                            st.metric(label=team, value=val)
-
-            st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
-            render_row(top_tier)
-            render_row(mid_tier)
-            render_row(bot_tier)
-            render_row(other_tier)
-            
-            # --- DAILY DUTY (FROM CALENDAR) ---
-            st.columns(1)[0].metric(label="DAILY RESPONSIBILITY / DUTY", value=daily_duty)
-            
-        else:
-            st.info(f"No activities scheduled for {current_slot}.")
-    else:
-        st.error("Missing 'Time' column.")
-
-# --- 6. RUN ---
-update_dashboard()
+        if not match.empty
