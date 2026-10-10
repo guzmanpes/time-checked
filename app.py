@@ -102,8 +102,6 @@ def update_dashboard():
     
     # ------------------------------------------------------------------
     # MOCK TIME FOR WEEKEND TESTING (Tuesday, October 20, 2026 @ 10:15 AM)
-    # To return to real live time later, change this line to:
-    # now = datetime.now(local_tz)
     # ------------------------------------------------------------------
     now = local_tz.localize(datetime(2026, 10, 20, 10, 15, 0))
     
@@ -145,3 +143,37 @@ def update_dashboard():
         match = df[df[time_col].str.contains(current_slot, na=False)]
 
         if not match.empty:
+            all_cols = [c for c in df.columns if c != time_col and "Unnamed" not in c]
+            
+            top_tier = [c for c in all_cols if c.upper() in ["TK", "K"]]
+            mid_tier = [c for c in all_cols if any(x in c.upper() for x in ["1ST", "2ND", "3RD"])]
+            bot_tier = [c for c in all_cols if any(x in c.upper() for x in ["4TH", "5TH"])]
+            used_cols = top_tier + mid_tier + bot_tier
+            other_tier = [c for c in all_cols if c not in used_cols]
+
+            def render_row(teams_list):
+                if teams_list:
+                    cols = st.columns(len(teams_list))
+                    for i, team in enumerate(teams_list):
+                        with cols[i]:
+                            val = str(match[team].values[0]).strip("[]'\"")
+                            if val.lower() in ['nan', 'none', '']: 
+                                val = "---"
+                            st.metric(label=team, value=val)
+
+            st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
+            render_row(top_tier)
+            render_row(mid_tier)
+            render_row(bot_tier)
+            render_row(other_tier)
+            
+            # Metric card for Calendar Responsibility
+            st.columns(1)[0].metric(label="DAILY RESPONSIBILITY / DUTY", value=daily_duty)
+            
+        else:
+            st.info(f"No activities scheduled for slot {current_slot} on {current_sheet}.")
+    else:
+        st.error("Missing 'Time' column in Google Sheet.")
+
+# --- 7. RUN DASHBOARD ---
+update_dashboard()
