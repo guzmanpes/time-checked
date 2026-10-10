@@ -61,14 +61,13 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. CALENDAR LOOKUP FUNCTION ---
+# --- 4. CALENDAR LOOKUP FUNCTION WITH DIRECT DIAGNOSTICS ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Finds today's day number in the calendar grid and reads the exact name
-    in the row directly below it, ignoring numbers from lower rows.
+    Finds today's day number in the monthly calendar grid (e.g. '20')
+    and extracts text from surrounding offset cells.
     """
     day_num = str(now_datetime.day)
-    
     tab_candidates = ["OCT", "OCTOBER", "October 2026", "October"]
     
     for month_tab in tab_candidates:
@@ -76,20 +75,19 @@ def get_daily_responsibility(cal_id, now_datetime):
             url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={month_tab}"
             df = pd.read_csv(url, header=None).fillna("").astype(str)
             
-            # Step 1: Scan grid for exact day number '20'
+            # Search grid for day number '20'
             for r_idx in range(len(df)):
                 for c_idx in range(len(df.columns)):
                     val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
                     
                     if val == day_num:
-                        # Scan up to 2 rows down specifically for alphabetical text (names)
-                        for offset in [1, 2]:
+                        # Scan next 3 rows below
+                        for offset in [1, 2, 3]:
                             if r_idx + offset < len(df):
                                 target_val = str(df.iloc[r_idx + offset, c_idx]).strip()
-                                
-                                # Reject if empty, numeric (like '27'), or header keywords
-                                if target_val and not target_val.replace('.', '').isdigit():
-                                    if target_val.lower() not in ['nan', 'none', 'null', 'oct', 'october', '2026']:
+                                # Keep text that contains letters (e.g., 'Genesis')
+                                if any(c.isalpha() for c in target_val):
+                                    if target_val.lower() not in ['nan', 'none', 'null', 'oct', 'october', '2026', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']:
                                         return target_val
         except Exception:
             continue
@@ -110,7 +108,7 @@ def get_current_rotation_day(today_date, anchor_date):
 def update_dashboard():
     local_tz = pytz.timezone('US/Pacific') 
     
-    # MOCK TIME FOR TESTING: Tuesday, October 20, 2026 @ 10:15 AM
+    # MOCK TIME: Tuesday, October 20, 2026 @ 10:15 AM
     now = local_tz.localize(datetime(2026, 10, 20, 10, 15, 0))
     
     current_date_str = now.strftime("%B %d, %Y")
