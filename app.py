@@ -8,7 +8,8 @@ st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", ini
 
 # --- 2. SETTINGS & SHEET IDs ---
 SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
-CALENDAR_SHEET_ID = "1tVm6iLZqci_fKVv9zmN0fd_pJ7doAC-fv4A-dYNGomM"
+# Updated to your public copy of the Calendar sheet!
+CALENDAR_SHEET_ID = "1yG2Fe00Tw8t_ypLU4I2_zDtwi7l1ZG3tf5huhVhmNOA"
 
 ANCHOR_DATE = date(2026, 5, 25) 
 
@@ -64,12 +65,12 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Pulls current month's tab from viewer-only calendar sheet,
-    finds today's day number, and reads the text in the cell below it.
+    Pulls current month's tab from public calendar sheet,
+    finds today's day number, and reads the duty text in the cell below it.
     """
     day_num = str(now_datetime.day)
     
-    # Try all common tab naming conventions
+    # Try all common month tab naming conventions
     tab_candidates = [
         now_datetime.strftime("%b").upper(),     # "OCT"
         now_datetime.strftime("%B %Y"),          # "October 2026"
@@ -82,18 +83,18 @@ def get_daily_responsibility(cal_id, now_datetime):
         try:
             safe_month_tab = month_tab.replace(" ", "%20")
             url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={safe_month_tab}"
-            df = pd.read_csv(url, header=None).astype(str)
+            df = pd.read_csv(url, header=None).fillna("").astype(str)
             
             # Search grid for day number (handles '20' or '20.0')
             for r_idx, row in df.iterrows():
                 for c_idx, val in enumerate(row):
-                    clean_val = val.strip().split('.')[0]
+                    clean_val = val.strip().split('.')[0].replace('"', '')
                     if clean_val == day_num:
                         # Scan up to 5 rows below the day number for duty text
                         for offset in range(1, 6):
                             if r_idx + offset < len(df):
-                                resp = df.iloc[r_idx + offset, c_idx].strip()
-                                if resp.lower() not in ['nan', 'none', '', 'null', 'nan.0', '0']:
+                                resp = df.iloc[r_idx + offset, c_idx].strip().replace('"', '')
+                                if resp.lower() not in ['nan', 'none', '', 'null', 'nan.0', '0', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']:
                                     return resp
         except Exception:
             continue
@@ -135,7 +136,7 @@ def update_dashboard():
     rounded_minute = (now.minute // 5) * 5
     current_slot = now.replace(minute=rounded_minute, second=0, microsecond=0).strftime("%H:%M")
 
-    # Fetch dynamic duty from Calendar sheet
+    # Fetch dynamic duty from Calendar sheet ("Genesis")
     daily_duty = get_daily_responsibility(CALENDAR_SHEET_ID, now)
 
     # --- HEADER ---
