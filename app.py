@@ -64,27 +64,40 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Pulls current month's tab (e.g., 'October 2026') from the viewer-only 
-    calendar spreadsheet, finds today's day number, and returns the text below it.
+    Pulls current month's tab from viewer-only calendar sheet,
+    finds today's day number, and reads the text in the cell below it.
     """
-    month_tab = now_datetime.strftime("%B %Y")
     day_num = str(now_datetime.day)
     
-    try:
-        safe_month_tab = month_tab.replace(" ", "%20")
-        url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={safe_month_tab}"
-        df = pd.read_csv(url, header=None).astype(str)
-        
-        for r_idx, row in df.iterrows():
-            for c_idx, val in enumerate(row):
-                if val.strip() == day_num:
-                    if r_idx + 1 < len(df):
-                        resp = df.iloc[r_idx + 1, c_idx].strip()
-                        if resp.lower() not in ['nan', 'none', '', 'null']:
-                            return resp
-        return "None Assigned"
-    except Exception:
-        return "Calendar Unavailable"
+    # Try all common tab naming conventions (e.g., OCT, October 2026, October, Oct 2026)
+    tab_candidates = [
+        now_datetime.strftime("%b").upper(),     # "OCT"
+        now_datetime.strftime("%B %Y"),          # "October 2026"
+        now_datetime.strftime("%B"),             # "October"
+        now_datetime.strftime("%b %Y"),          # "Oct 2026"
+        now_datetime.strftime("%b")              # "Oct"
+    ]
+    
+    for month_tab in tab_candidates:
+        try:
+            safe_month_tab = month_tab.replace(" ", "%20")
+            url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={safe_month_tab}"
+            df = pd.read_csv(url, header=None).astype(str)
+            
+            # Search grid for day number (e.g. '20')
+            for r_idx, row in df.iterrows():
+                for c_idx, val in enumerate(row):
+                    if val.strip() == day_num:
+                        # Search up to 3 rows below the day number for text
+                        for offset in range(1, 4):
+                            if r_idx + offset < len(df):
+                                resp = df.iloc[r_idx + offset, c_idx].strip()
+                                if resp.lower() not in ['nan', 'none', '', 'null', 'nan.0']:
+                                    return resp
+        except Exception:
+            continue
+            
+    return "None Assigned"
 
 # --- 5. ROTATION DAY CALCULATION ---
 def get_current_rotation_day(today_date, anchor_date):
@@ -101,7 +114,9 @@ def update_dashboard():
     local_tz = pytz.timezone('US/Pacific') 
     
     # ------------------------------------------------------------------
-    # MOCK TIME FOR WEEKEND TESTING (Tuesday, October 20, 2026 @ 10:15 AM)
+    # MOCK TIME FOR TESTING: Tuesday, October 20, 2026 @ 10:15 AM
+    # To return to real live time later, replace this line with:
+    # now = datetime.now(local_tz)
     # ------------------------------------------------------------------
     now = local_tz.localize(datetime(2026, 10, 20, 10, 15, 0))
     
@@ -119,7 +134,7 @@ def update_dashboard():
     rounded_minute = (now.minute // 5) * 5
     current_slot = now.replace(minute=rounded_minute, second=0, microsecond=0).strftime("%H:%M")
 
-    # Fetch dynamic duty from the Calendar sheet
+    # Fetch dynamic duty from Calendar sheet ("Genesis")
     daily_duty = get_daily_responsibility(CALENDAR_SHEET_ID, now)
 
     # --- HEADER ---
