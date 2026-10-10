@@ -99,6 +99,7 @@ def get_current_rotation_day(today_date, anchor_date):
 @st.fragment(run_every=5)
 def update_dashboard():
     local_tz = pytz.timezone('US/Pacific') 
+    # MOCK TIME: Forces the app to simulate Tuesday at 10:15 AM
     now = local_tz.localize(datetime(2026, 10, 20, 10, 15, 0))
     
     current_date_str = now.strftime("%B %d, %Y")
