@@ -9,7 +9,7 @@ st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", ini
 # --- 2. SETTINGS & SHEET IDs ---
 SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
 CALENDAR_SHEET_ID = "1yG2Fe00Tw8t_ypLU4I2_zDtwi7l1ZG3tf5huhVhmNOA"
-OCTOBER_GID = "888205070"  # Extracted directly from your shared link
+OCTOBER_GID = "888205070"  # Direct GID for October tab
 
 ANCHOR_DATE = date(2026, 5, 25) 
 
@@ -65,37 +65,46 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Fetches the calendar tab using the exact GID or sheet name,
-    finds the date cell '20', and scans straight down for the name 'Genesis'.
+    Finds cell containing today's date number ('20') and reads straight down
+    the column for teacher duty names while ignoring month and day headers.
     """
     day_num = str(now_datetime.day)
     
-    # Try direct GID URL first, then fall back to tab names
+    # Try direct GID URL first, then tab name fallbacks
     urls = [
         f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}",
         f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet=OCT",
         f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet=October"
     ]
     
+    # Words to explicitly ignore so header art like 'DECEMBER' or 'OCT' isn't read as a duty
+    ignored_words = [
+        'nan', 'none', 'null', '0', 'nan.0', '2026',
+        'january', 'february', 'march', 'april', 'may', 'june',
+        'july', 'august', 'september', 'october', 'november', 'december',
+        'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+        'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
+        'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
+    ]
+    
     for url in urls:
         try:
             df = pd.read_csv(url, header=None).fillna("").astype(str)
             
-            # Find the date number cell '20'
+            # Step 1: Scan grid for exact day number '20' or '20.0'
             for r_idx in range(len(df)):
                 for c_idx in range(len(df.columns)):
                     cell_val = df.iloc[r_idx, c_idx].strip()
                     
-                    # Match exact day '20' or '20.0'
                     if cell_val in [day_num, f"{day_num}.0"]:
-                        # Look directly down the same column (up to 4 rows below)
+                        # Step 2: Look directly down column c_idx (up to 4 rows below)
                         for r_offset in range(1, 5):
                             if r_idx + r_offset < len(df):
-                                duty_val = df.iloc[r_idx + r_offset, c_idx].strip()
+                                duty_val = df.iloc[r_idx + r_offset, c_idx].strip().replace('"', '')
                                 
-                                # Catch non-numeric names (e.g. 'Genesis')
+                                # Check if cell is non-empty, contains letters, and isn't a month/day header
                                 if duty_val and any(c.isalpha() for c in duty_val):
-                                    if duty_val.lower() not in ['nan', 'none', 'null', 'oct', 'october', '2026']:
+                                    if duty_val.lower() not in ignored_words:
                                         return duty_val
         except Exception:
             continue
@@ -132,7 +141,7 @@ def update_dashboard():
     rounded_minute = (now.minute // 5) * 5
     current_slot = now.replace(minute=rounded_minute, second=0, microsecond=0).strftime("%H:%M")
 
-    # Fetch dynamic duty from Calendar sheet
+    # Fetch dynamic duty from Calendar sheet ("Genesis")
     daily_duty = get_daily_responsibility(CALENDAR_SHEET_ID, now)
 
     # --- HEADER ---
