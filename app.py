@@ -69,7 +69,7 @@ def get_daily_responsibility(cal_id, now_datetime):
     """
     day_num = str(now_datetime.day)
     
-    # Try all common tab naming conventions (e.g., OCT, October 2026, October, Oct 2026)
+    # Try all common tab naming conventions
     tab_candidates = [
         now_datetime.strftime("%b").upper(),     # "OCT"
         now_datetime.strftime("%B %Y"),          # "October 2026"
@@ -84,15 +84,16 @@ def get_daily_responsibility(cal_id, now_datetime):
             url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={safe_month_tab}"
             df = pd.read_csv(url, header=None).astype(str)
             
-            # Search grid for day number (e.g. '20')
+            # Search grid for day number (handles '20' or '20.0')
             for r_idx, row in df.iterrows():
                 for c_idx, val in enumerate(row):
-                    if val.strip() == day_num:
-                        # Search up to 3 rows below the day number for text
-                        for offset in range(1, 4):
+                    clean_val = val.strip().split('.')[0]
+                    if clean_val == day_num:
+                        # Scan up to 5 rows below the day number for duty text
+                        for offset in range(1, 6):
                             if r_idx + offset < len(df):
                                 resp = df.iloc[r_idx + offset, c_idx].strip()
-                                if resp.lower() not in ['nan', 'none', '', 'null', 'nan.0']:
+                                if resp.lower() not in ['nan', 'none', '', 'null', 'nan.0', '0']:
                                     return resp
         except Exception:
             continue
@@ -134,7 +135,7 @@ def update_dashboard():
     rounded_minute = (now.minute // 5) * 5
     current_slot = now.replace(minute=rounded_minute, second=0, microsecond=0).strftime("%H:%M")
 
-    # Fetch dynamic duty from Calendar sheet ("Genesis")
+    # Fetch dynamic duty from Calendar sheet
     daily_duty = get_daily_responsibility(CALENDAR_SHEET_ID, now)
 
     # --- HEADER ---
