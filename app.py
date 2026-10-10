@@ -64,12 +64,11 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Scans the calendar grid for the exact date number in standalone cells, 
-    bypassing merged headers and text labels.
+    Finds today's day number in the calendar grid and reads the exact name
+    in the row directly below it, ignoring numbers from lower rows.
     """
     day_num = str(now_datetime.day)
     
-    # Check sheet tabs starting with OCT
     tab_candidates = ["OCT", "OCTOBER", "October 2026", "October"]
     
     for month_tab in tab_candidates:
@@ -77,20 +76,21 @@ def get_daily_responsibility(cal_id, now_datetime):
             url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={month_tab}"
             df = pd.read_csv(url, header=None).fillna("").astype(str)
             
-            # Step 1: Find the exact cell containing '20'
+            # Step 1: Scan grid for exact day number '20'
             for r_idx in range(len(df)):
                 for c_idx in range(len(df.columns)):
-                    val = str(df.iloc[r_idx, c_idx]).strip()
+                    val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
                     
-                    # Exact string match for '20' or '20.0'
-                    if val in [day_num, f"{day_num}.0"]:
-                        # Check the 3 cells directly under this date
-                        for offset in range(1, 4):
+                    if val == day_num:
+                        # Scan up to 2 rows down specifically for alphabetical text (names)
+                        for offset in [1, 2]:
                             if r_idx + offset < len(df):
                                 target_val = str(df.iloc[r_idx + offset, c_idx]).strip()
-                                # Filter out noise/empty cells
-                                if target_val and target_val.lower() not in ['nan', 'none', 'null', '0', 'nan.0', 'oct', 'october', '2026']:
-                                    return target_val
+                                
+                                # Reject if empty, numeric (like '27'), or header keywords
+                                if target_val and not target_val.replace('.', '').isdigit():
+                                    if target_val.lower() not in ['nan', 'none', 'null', 'oct', 'october', '2026']:
+                                        return target_val
         except Exception:
             continue
             
@@ -110,7 +110,7 @@ def get_current_rotation_day(today_date, anchor_date):
 def update_dashboard():
     local_tz = pytz.timezone('US/Pacific') 
     
-    # MOCK TIME: Tuesday, October 20, 2026 @ 10:15 AM
+    # MOCK TIME FOR TESTING: Tuesday, October 20, 2026 @ 10:15 AM
     now = local_tz.localize(datetime(2026, 10, 20, 10, 15, 0))
     
     current_date_str = now.strftime("%B %d, %Y")
@@ -126,7 +126,7 @@ def update_dashboard():
     rounded_minute = (now.minute // 5) * 5
     current_slot = now.replace(minute=rounded_minute, second=0, microsecond=0).strftime("%H:%M")
 
-    # Fetch dynamic duty
+    # Fetch dynamic duty from Calendar sheet
     daily_duty = get_daily_responsibility(CALENDAR_SHEET_ID, now)
 
     # --- HEADER ---
