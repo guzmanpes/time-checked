@@ -8,7 +8,6 @@ st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", ini
 
 # --- 2. SETTINGS & SHEET IDs ---
 SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
-# Updated to your public copy of the Calendar sheet!
 CALENDAR_SHEET_ID = "1yG2Fe00Tw8t_ypLU4I2_zDtwi7l1ZG3tf5huhVhmNOA"
 
 ANCHOR_DATE = date(2026, 5, 25) 
@@ -65,12 +64,12 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Pulls current month's tab from public calendar sheet,
-    finds today's day number, and reads the duty text in the cell below it.
+    Finds today's day number in the monthly calendar tab (e.g. '20')
+    and returns the value from the cell directly underneath it.
     """
     day_num = str(now_datetime.day)
     
-    # Try all common month tab naming conventions
+    # Try common tab name variations
     tab_candidates = [
         now_datetime.strftime("%b").upper(),     # "OCT"
         now_datetime.strftime("%B %Y"),          # "October 2026"
@@ -85,17 +84,16 @@ def get_daily_responsibility(cal_id, now_datetime):
             url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={safe_month_tab}"
             df = pd.read_csv(url, header=None).fillna("").astype(str)
             
-            # Search grid for day number (handles '20' or '20.0')
+            # Find the date number cell (e.g., cell D10 containing '20')
             for r_idx, row in df.iterrows():
                 for c_idx, val in enumerate(row):
                     clean_val = val.strip().split('.')[0].replace('"', '')
                     if clean_val == day_num:
-                        # Scan up to 5 rows below the day number for duty text
-                        for offset in range(1, 6):
-                            if r_idx + offset < len(df):
-                                resp = df.iloc[r_idx + offset, c_idx].strip().replace('"', '')
-                                if resp.lower() not in ['nan', 'none', '', 'null', 'nan.0', '0', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']:
-                                    return resp
+                        # Grab the cell directly below it (e.g., cell D11)
+                        if r_idx + 1 < len(df):
+                            resp = df.iloc[r_idx + 1, c_idx].strip().replace('"', '')
+                            if resp and resp.lower() not in ['nan', 'none', 'null', 'nan.0', '0']:
+                                return resp
         except Exception:
             continue
             
