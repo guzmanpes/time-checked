@@ -61,11 +61,11 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. CALENDAR LOOKUP FUNCTION WITH DIRECT DIAGNOSTICS ---
+# --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Finds today's day number in the monthly calendar grid (e.g. '20')
-    and extracts text from surrounding offset cells.
+    Finds today's day number (e.g. '20') in the calendar sheet and scans a 
+    3x3 neighborhood around it to catch names in merged/offset cells.
     """
     day_num = str(now_datetime.day)
     tab_candidates = ["OCT", "OCTOBER", "October 2026", "October"]
@@ -75,20 +75,26 @@ def get_daily_responsibility(cal_id, now_datetime):
             url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={month_tab}"
             df = pd.read_csv(url, header=None).fillna("").astype(str)
             
-            # Search grid for day number '20'
+            # Step 1: Scan grid for exact day number '20'
             for r_idx in range(len(df)):
                 for c_idx in range(len(df.columns)):
                     val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
                     
                     if val == day_num:
-                        # Scan next 3 rows below
-                        for offset in [1, 2, 3]:
-                            if r_idx + offset < len(df):
-                                target_val = str(df.iloc[r_idx + offset, c_idx]).strip()
-                                # Keep text that contains letters (e.g., 'Genesis')
-                                if any(c.isalpha() for c in target_val):
-                                    if target_val.lower() not in ['nan', 'none', 'null', 'oct', 'october', '2026', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']:
-                                        return target_val
+                        # Step 2: Scan rows below (offsets +1 to +3) across neighbor columns (c_idx-1 to c_idx+1)
+                        for r_offset in [1, 2, 3]:
+                            for c_offset in [0, -1, 1]:
+                                target_row = r_idx + r_offset
+                                target_col = c_idx + c_offset
+                                
+                                if 0 <= target_row < len(df) and 0 <= target_col < len(df.columns):
+                                    cell_text = str(df.iloc[target_row, target_col]).strip()
+                                    
+                                    # Must contain letters (e.g. 'Genesis') and skip headers/numbers
+                                    if any(c.isalpha() for c in cell_text):
+                                        ignored = ['nan', 'none', 'null', 'oct', 'october', '2026', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+                                        if cell_text.lower() not in ignored:
+                                            return cell_text
         except Exception:
             continue
             
@@ -108,7 +114,7 @@ def get_current_rotation_day(today_date, anchor_date):
 def update_dashboard():
     local_tz = pytz.timezone('US/Pacific') 
     
-    # MOCK TIME: Tuesday, October 20, 2026 @ 10:15 AM
+    # MOCK TIME FOR TESTING: Tuesday, October 20, 2026 @ 10:15 AM
     now = local_tz.localize(datetime(2026, 10, 20, 10, 15, 0))
     
     current_date_str = now.strftime("%B %d, %Y")
