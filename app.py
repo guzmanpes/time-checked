@@ -69,7 +69,7 @@ def get_daily_responsibility(cal_id, now_datetime):
     """
     day_num = str(now_datetime.day)
     
-    # Try common tab name variations
+    # Priority order for tab names (OCT is checked first)
     tab_candidates = [
         now_datetime.strftime("%b").upper(),     # "OCT"
         now_datetime.strftime("%B %Y"),          # "October 2026"
@@ -84,16 +84,20 @@ def get_daily_responsibility(cal_id, now_datetime):
             url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={safe_month_tab}"
             df = pd.read_csv(url, header=None).fillna("").astype(str)
             
-            # Find the date number cell (e.g., cell D10 containing '20')
+            # Search grid for exact day number
             for r_idx, row in df.iterrows():
                 for c_idx, val in enumerate(row):
                     clean_val = val.strip().split('.')[0].replace('"', '')
+                    
+                    # STRICT MATCH: Only match exact '20', ignore '2026' or headers
                     if clean_val == day_num:
-                        # Grab the cell directly below it (e.g., cell D11)
-                        if r_idx + 1 < len(df):
-                            resp = df.iloc[r_idx + 1, c_idx].strip().replace('"', '')
-                            if resp and resp.lower() not in ['nan', 'none', 'null', 'nan.0', '0']:
-                                return resp
+                        # Scan up to 3 rows directly below the date for non-empty text
+                        for offset in range(1, 4):
+                            if r_idx + offset < len(df):
+                                resp = df.iloc[r_idx + offset, c_idx].strip().replace('"', '')
+                                # Ignore blank values, zeroes, or month titles
+                                if resp and resp.lower() not in ['nan', 'none', 'null', 'nan.0', '0', 'october', 'oct']:
+                                    return resp
         except Exception:
             continue
             
@@ -134,7 +138,7 @@ def update_dashboard():
     rounded_minute = (now.minute // 5) * 5
     current_slot = now.replace(minute=rounded_minute, second=0, microsecond=0).strftime("%H:%M")
 
-    # Fetch dynamic duty from Calendar sheet ("Genesis")
+    # Fetch dynamic duty from Calendar sheet
     daily_duty = get_daily_responsibility(CALENDAR_SHEET_ID, now)
 
     # --- HEADER ---
