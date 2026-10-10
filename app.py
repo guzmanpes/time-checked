@@ -144,4 +144,4 @@ def update_dashboard():
         df[time_col] = df[time_col].astype(str).str.strip()
         match = df[df[time_col].str.contains(current_slot, na=False)]
 
-        if not match.empty
+        if not match.empty:
