@@ -64,40 +64,33 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Finds today's day number in the monthly calendar tab (e.g. '20')
-    and returns the value from the cell directly underneath it.
+    Scans the calendar grid for the exact date number in standalone cells, 
+    bypassing merged headers and text labels.
     """
     day_num = str(now_datetime.day)
     
-    # Priority order for tab names (OCT is checked first)
-    tab_candidates = [
-        now_datetime.strftime("%b").upper(),     # "OCT"
-        now_datetime.strftime("%B %Y"),          # "October 2026"
-        now_datetime.strftime("%B"),             # "October"
-        now_datetime.strftime("%b %Y"),          # "Oct 2026"
-        now_datetime.strftime("%b")              # "Oct"
-    ]
+    # Check sheet tabs starting with OCT
+    tab_candidates = ["OCT", "OCTOBER", "October 2026", "October"]
     
     for month_tab in tab_candidates:
         try:
-            safe_month_tab = month_tab.replace(" ", "%20")
-            url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={safe_month_tab}"
+            url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={month_tab}"
             df = pd.read_csv(url, header=None).fillna("").astype(str)
             
-            # Search grid for exact day number
-            for r_idx, row in df.iterrows():
-                for c_idx, val in enumerate(row):
-                    clean_val = val.strip().split('.')[0].replace('"', '')
+            # Step 1: Find the exact cell containing '20'
+            for r_idx in range(len(df)):
+                for c_idx in range(len(df.columns)):
+                    val = str(df.iloc[r_idx, c_idx]).strip()
                     
-                    # STRICT MATCH: Only match exact '20', ignore '2026' or headers
-                    if clean_val == day_num:
-                        # Scan up to 3 rows directly below the date for non-empty text
+                    # Exact string match for '20' or '20.0'
+                    if val in [day_num, f"{day_num}.0"]:
+                        # Check the 3 cells directly under this date
                         for offset in range(1, 4):
                             if r_idx + offset < len(df):
-                                resp = df.iloc[r_idx + offset, c_idx].strip().replace('"', '')
-                                # Ignore blank values, zeroes, or month titles
-                                if resp and resp.lower() not in ['nan', 'none', 'null', 'nan.0', '0', 'october', 'oct']:
-                                    return resp
+                                target_val = str(df.iloc[r_idx + offset, c_idx]).strip()
+                                # Filter out noise/empty cells
+                                if target_val and target_val.lower() not in ['nan', 'none', 'null', '0', 'nan.0', 'oct', 'october', '2026']:
+                                    return target_val
         except Exception:
             continue
             
@@ -117,11 +110,7 @@ def get_current_rotation_day(today_date, anchor_date):
 def update_dashboard():
     local_tz = pytz.timezone('US/Pacific') 
     
-    # ------------------------------------------------------------------
-    # MOCK TIME FOR TESTING: Tuesday, October 20, 2026 @ 10:15 AM
-    # To return to real live time later, replace this line with:
-    # now = datetime.now(local_tz)
-    # ------------------------------------------------------------------
+    # MOCK TIME: Tuesday, October 20, 2026 @ 10:15 AM
     now = local_tz.localize(datetime(2026, 10, 20, 10, 15, 0))
     
     current_date_str = now.strftime("%B %d, %Y")
@@ -134,11 +123,10 @@ def update_dashboard():
     else:
         display_day = f"{current_day_of_week} ({current_sheet})"
 
-    # Calculate 5-minute time slot using 'now'
     rounded_minute = (now.minute // 5) * 5
     current_slot = now.replace(minute=rounded_minute, second=0, microsecond=0).strftime("%H:%M")
 
-    # Fetch dynamic duty from Calendar sheet
+    # Fetch dynamic duty
     daily_duty = get_daily_responsibility(CALENDAR_SHEET_ID, now)
 
     # --- HEADER ---
