@@ -8,8 +8,8 @@ st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", ini
 
 # --- 2. SETTINGS ---
 SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
+CALENDAR_SHEET_ID = "1tVm6iLZqci_fKVv9zmN0fd_pJ7doAC-fv4A-dYNGomM"
 
-# Updated to past Monday so it calculates safely for today
 ANCHOR_DATE = date(2026, 5, 25) 
 
 # --- 3. CUSTOM THEMING (CSS) ---
@@ -61,6 +61,32 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# --- 4. CALENDAR LOOKUP FUNCTION ---
+def get_daily_responsibility(cal_id, now_datetime):
+    """
+    Pulls the current month's tab from the viewer-only calendar spreadsheet,
+    finds today's day number, and returns the text in the row below it.
+    """
+    # Formats tab name to match calendar tabs (e.g. Oct26, Nov26)
+    month_tab = now_datetime.strftime("%b%y")
+    day_num = str(now_datetime.day)
+    
+    try:
+        url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={month_tab}"
+        df = pd.read_csv(url, header=None).astype(str)
+        
+        # Search grid for day number
+        for r_idx, row in df.iterrows():
+            for c_idx, val in enumerate(row):
+                if val.strip() == day_num:
+                    if r_idx + 1 < len(df):
+                        resp = df.iloc[r_idx + 1, c_idx].strip()
+                        if resp.lower() not in ['nan', 'none', '', 'null']:
+                            return resp
+        return "None"
+    except Exception:
+        return "N/A"
+
 def get_current_rotation_day(today_date, anchor_date):
     if today_date < anchor_date:
         return "Day 1"
@@ -69,9 +95,9 @@ def get_current_rotation_day(today_date, anchor_date):
     rotation_num = ((total_school_days - 1) % 10) + 1
     return f"Day {rotation_num}"
 
+# --- 5. DASHBOARD MAIN LOOP ---
 @st.fragment(run_every=5)
 def update_dashboard():
-    # --- TIME LOGIC ---
     local_tz = pytz.timezone('US/Pacific') 
     now = datetime.now(local_tz)
     
@@ -88,19 +114,21 @@ def update_dashboard():
     rounded_minute = (now.minute // 5) * 5
     current_slot = now.replace(minute=rounded_minute, second=0, microsecond=0).strftime("%H:%M")
 
+    # Fetch dynamic duty from the Calendar sheet
+    daily_duty = get_daily_responsibility(CALENDAR_SHEET_ID, now)
+
     # --- HEADER ---
     st.markdown(f"<h1>PHELAN FALCONS LIVE DAILY SCHEDULE</h1>", unsafe_allow_html=True)
     st.markdown(f"<p style='text-align: center; color: #1E90FF; font-size: 17px; font-weight: bold; margin-top: -5px; margin-bottom: 8px;'>{display_day}, {current_date_str} | {now.strftime('%I:%M:%S %p')}</p>", unsafe_allow_html=True)
 
-    # --- LOAD DATA FROM GOOGLE SHEETS ---
+    # --- LOAD MAIN SCHEDULE SHEET ---
     try:
-        # URL-encoded sheet target to handle spaces safely
         safe_sheet_name = current_sheet.replace(" ", "%20")
         url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={safe_sheet_name}"
         df = pd.read_csv(url).astype(object)
         df.columns = df.columns.str.strip()
-    except Exception as e:
-        st.error(f"Error connecting to Google Sheet tab target: '{current_sheet}'. Verify share settings or tab name structure.")
+    except Exception:
+        st.error(f"Error connecting to Google Sheet tab: '{current_sheet}'.")
         return
 
     time_col = next((col for col in df.columns if col.lower() == 'time'), None)
@@ -123,7 +151,7 @@ def update_dashboard():
                     cols = st.columns(len(teams_list))
                     for i, team in enumerate(teams_list):
                         with cols[i]:
-                            val = str(match[team].values).strip("[]'\"")
+                            val = str(match[team].values[0]).strip("[]'\"")
                             if val.lower() in ['nan', 'none', '']: val = "---"
                             st.metric(label=team, value=val)
 
@@ -133,10 +161,13 @@ def update_dashboard():
             render_row(bot_tier)
             render_row(other_tier)
             
+            # --- DAILY DUTY (FROM CALENDAR) ---
+            st.columns(1)[0].metric(label="DAILY RESPONSIBILITY / DUTY", value=daily_duty)
+            
         else:
             st.info(f"No activities scheduled for {current_slot}.")
     else:
         st.error("Missing 'Time' column.")
 
-# --- 4. RUN ---
+# --- 6. RUN ---
 update_dashboard()
