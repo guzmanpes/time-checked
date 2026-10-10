@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import pytz
-import re
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", initial_sidebar_state="collapsed")
@@ -10,6 +9,7 @@ st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", ini
 # --- 2. SETTINGS & SHEET IDs ---
 SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
 CALENDAR_SHEET_ID = "1yG2Fe00Tw8t_ypLU4I2_zDtwi7l1ZG3tf5huhVhmNOA"
+OCTOBER_GID = "888205070"  # Extracted directly from your shared link
 
 ANCHOR_DATE = date(2026, 5, 25) 
 
@@ -65,37 +65,38 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Scans the calendar grid for today's day number as an integer value,
-    then scans down the exact column to pull the duty name.
+    Fetches the calendar tab using the exact GID or sheet name,
+    finds the date cell '20', and scans straight down for the name 'Genesis'.
     """
-    target_day = now_datetime.day
-    tab_candidates = ["OCT", "OCTOBER", "October 2026", "October"]
+    day_num = str(now_datetime.day)
     
-    for month_tab in tab_candidates:
+    # Try direct GID URL first, then fall back to tab names
+    urls = [
+        f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}",
+        f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet=OCT",
+        f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet=October"
+    ]
+    
+    for url in urls:
         try:
-            url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={month_tab}"
             df = pd.read_csv(url, header=None).fillna("").astype(str)
             
-            # Step 1: Scan grid for matching day number
+            # Find the date number cell '20'
             for r_idx in range(len(df)):
                 for c_idx in range(len(df.columns)):
-                    raw_val = df.iloc[r_idx, c_idx].strip()
+                    cell_val = df.iloc[r_idx, c_idx].strip()
                     
-                    # Extract pure numbers from cell (handles '20', '20.0', ' 20 ')
-                    digits = re.findall(r'^\d+', raw_val)
-                    if digits and int(digits[0]) == target_day:
-                        # Make sure it's a date number cell, not a year like 2026
-                        if int(digits[0]) <= 31 and len(raw_val) <= 4:
-                            # Step 2: Scan vertically down column c_idx for text name
-                            for r_offset in range(1, 5):
-                                if r_idx + r_offset < len(df):
-                                    cell_text = df.iloc[r_idx + r_offset, c_idx].strip()
-                                    
-                                    # Must contain letters (e.g. Genesis) and not be header words
-                                    if any(c.isalpha() for c in cell_text):
-                                        ignored = ['nan', 'none', 'null', 'oct', 'october', '2026', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-                                        if cell_text.lower() not in ignored:
-                                            return cell_text
+                    # Match exact day '20' or '20.0'
+                    if cell_val in [day_num, f"{day_num}.0"]:
+                        # Look directly down the same column (up to 4 rows below)
+                        for r_offset in range(1, 5):
+                            if r_idx + r_offset < len(df):
+                                duty_val = df.iloc[r_idx + r_offset, c_idx].strip()
+                                
+                                # Catch non-numeric names (e.g. 'Genesis')
+                                if duty_val and any(c.isalpha() for c in duty_val):
+                                    if duty_val.lower() not in ['nan', 'none', 'null', 'oct', 'october', '2026']:
+                                        return duty_val
         except Exception:
             continue
             
