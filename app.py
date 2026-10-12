@@ -92,51 +92,35 @@ class GoogleSheetHTMLParser(HTMLParser):
             self.cell_data += data
 
 # --- 4. CALENDAR LOOKUP FUNCTION ---
+# --- 4. CALENDAR LOOKUP FUNCTION (HTML DIAGNOSTIC) ---
 def get_daily_responsibility(cal_id, now_datetime):
-    """
-    Parses Google Sheet HTML web table directly using standard library HTMLParser.
-    """
     target_day = str(now_datetime.day)
-    
-    ignored_words = {
-        'nan', 'none', 'null', '0', '2026', 'notes',
-        'october', 'january', 'february', 'march', 'april', 'may', 'june',
-        'july', 'august', 'september', 'november', 'december',
-        'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
-        'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
-    }
-
     url = f"https://docs.google.com/spreadsheets/d/{cal_id}/htmlview?gid={OCTOBER_GID}"
     
     try:
         response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            parser = GoogleSheetHTMLParser()
-            parser.feed(response.text)
-            matrix = parser.grid
-            
-            # Scan matrix for target day '20'
-            for r_idx, row in enumerate(matrix):
-                for c_idx, cell in enumerate(row):
-                    clean_cell = cell.split('.')[0]
-                    
-                    if clean_cell == target_day and len(cell) <= 4:
-                        # Check the row immediately below (r_idx + 1)
-                        if r_idx + 1 < len(matrix):
-                            sub_row = matrix[r_idx + 1]
-                            
-                            # Inspect column c_idx and adjacent offsets for merged alignment
-                            for c_offset in [0, -1, 1, -2, 2]:
-                                target_c = c_idx + c_offset
-                                if 0 <= target_c < len(sub_row):
-                                    candidate = sub_row[target_c].strip()
-                                    
-                                    if candidate and any(char.isalpha() for char in candidate):
-                                        if candidate.lower() not in ignored_words:
-                                            return candidate
-    except Exception:
-        pass
-
+        st.write(f"HTTP Response Status: {response.status_code}")
+        
+        parser = GoogleSheetHTMLParser()
+        parser.feed(response.text)
+        matrix = parser.grid
+        
+        st.subheader("🔍 HTML PARSED MATRIX")
+        st.write(matrix)
+        
+        for r_idx, row in enumerate(matrix):
+            for c_idx, cell in enumerate(row):
+                clean_cell = cell.split('.')[0]
+                if clean_cell == target_day and len(cell) <= 4:
+                    st.success(f"Found day '{target_day}' at Row {r_idx}, Col {c_idx}")
+                    if r_idx + 1 < len(matrix):
+                        sub_row = matrix[r_idx + 1]
+                        st.info(f"Row directly beneath (Row {r_idx + 1}): {sub_row}")
+                        if c_idx < len(sub_row):
+                            return sub_row[c_idx]
+    except Exception as e:
+        st.error(f"HTML Fetch Error: {str(e)}")
+        
     return "None Assigned"
 
 # --- 5. ROTATION DAY CALCULATION ---
