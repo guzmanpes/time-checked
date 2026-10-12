@@ -65,28 +65,53 @@ st.markdown("""
 
 # --- 4. CALENDAR LOOKUP FUNCTION (PUBLISHED CSV FEED) ---
 # --- 4. CALENDAR LOOKUP FUNCTION (DIAGNOSTIC) ---
+# --- 4. CALENDAR LOOKUP FUNCTION (PUBHTML ROUTE) ---
 def get_daily_responsibility(cal_id, now_datetime):
+    """
+    Parses Google's published HTML web view directly using pandas.read_html.
+    This bypasses Google Workspace 401 API restrictions on server requests.
+    """
     target_day = str(now_datetime.day)
-    pub_csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/pub?gid={OCTOBER_GID}&single=true&output=csv"
+    pub_html_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/pubhtml?gid={OCTOBER_GID}&single=true"
     
+    ignored_words = {
+        'nan', 'none', 'null', '0', '2026', 'notes',
+        'october', 'january', 'february', 'march', 'april', 'may', 'june',
+        'july', 'august', 'september', 'november', 'december',
+        'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
+        'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
+    }
+
     try:
-        res = requests.get(pub_csv_url, timeout=5)
-        st.error(f"HTTP Status: {res.status_code}")
-        st.code(res.text[:300], language="html") # Displays raw content response
+        # Use custom headers to simulate a standard browser GET request
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        res = requests.get(pub_html_url, headers=headers, timeout=5)
         
-        df = pd.read_csv(pub_csv_url, header=None).fillna("").astype(str)
-        st.write("Parsed DataFrame shape:", df.shape)
-        
-        for r_idx in range(len(df)):
-            for c_idx in range(len(df.columns)):
-                cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
-                if cell_val == target_day:
-                    st.success(f"Match found at Row {r_idx}, Col {c_idx}")
-                    if r_idx + 1 < len(df):
-                        return str(df.iloc[r_idx + 1, c_idx]).strip()
-    except Exception as e:
-        st.error(f"Fetch Exception: {e}")
-        
+        if res.status_code == 200:
+            tables = pd.read_html(res.text)
+            if tables:
+                df = tables[0].fillna("").astype(str)
+                
+                # Search row by row for target day ('20')
+                for r_idx in range(len(df)):
+                    for c_idx in range(len(df.columns)):
+                        cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
+                        
+                        if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
+                            # Scan rows directly beneath in the same column
+                            for r_offset in [1, 2]:
+                                if r_idx + r_offset < len(df):
+                                    for c_offset in [0, -1, 1]:
+                                        t_c = c_idx + c_offset
+                                        if 0 <= t_c < len(df.columns):
+                                            candidate = str(df.iloc[r_idx + r_offset, t_c]).strip()
+                                            
+                                            if candidate and any(char.isalpha() for char in candidate):
+                                                if candidate.lower() not in ignored_words:
+                                                    return candidate
+    except Exception:
+        pass
+
     return "None Assigned"
 
 # --- 5. ROTATION DAY CALCULATION ---
