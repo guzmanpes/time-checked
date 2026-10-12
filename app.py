@@ -66,9 +66,16 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 # --- 4. CALENDAR LOOKUP FUNCTION ---
+# --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
+    """
+    Parses Google Sheets Published HTML view to capture styled/formatted cell values
+    that Google's raw CSV export drops.
+    """
     target_day = str(now_datetime.day)
-    url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
+    
+    # Target Google Sheet Published HTML view
+    html_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/htmlview?gid={OCTOBER_GID}"
     
     ignored_words = {
         'nan', 'none', 'null', '0', '2026', 'notes',
@@ -77,42 +84,37 @@ def get_daily_responsibility(cal_id, now_datetime):
         'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
         'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
     }
-    
+
     try:
-        df = pd.read_csv(url, header=None).fillna("").astype(str)
-        
-        # Flatten all non-empty values into a sequence
-        cells = []
-        for r in range(len(df)):
-            for c in range(len(df.columns)):
-                val = str(df.iloc[r, c]).strip()
-                if val:
-                    cells.append(val)
+        res = requests.get(html_url, timeout=5)
+        if res.status_code == 200:
+            parser = GoogleSheetHTMLParser()
+            parser.feed(res.text)
+            grid = parser.grid
+            
+            # Scan table rows for target day '20'
+            for r_idx, row in enumerate(grid):
+                for c_idx, cell in enumerate(row):
+                    clean_cell = cell.strip().split('.')[0]
                     
-        # --- ON-SCREEN DIAGNOSTIC DISPLAY ---
-        st.subheader("🔍 RAW CELL STREAM FROM GOOGLE")
-        st.write(cells)
-        
-        for i, token in enumerate(cells):
-            clean_token = token.split('.')[0]
-            if clean_token == target_day and len(token) <= 4:
-                st.info(f" Found '{target_day}' at position {i} in cell list!")
-                
-                # Check next 10 items
-                next_items = cells[i+1 : i+11]
-                st.write(f"Tokens following '{target_day}':", next_items)
-                
-                for next_val in next_items:
-                    clean_next = next_val.strip()
-                    if any(char.isalpha() for char in clean_next):
-                        if clean_next.lower() not in ignored_words:
-                            st.success(f"Selected match: '{clean_next}'")
-                            return clean_next
+                    if clean_cell == target_day and len(cell.strip()) <= 4:
+                        # Check the row directly below in the same column
+                        if r_idx + 1 < len(grid):
+                            sub_row = grid[r_idx + 1]
                             
-        st.error(f"Could not locate date token '{target_day}' inside cell list.")
-    except Exception as e:
-        st.error(f"Download Exception: {e}")
-        
+                            # Check column c_idx and immediate adjacent offsets
+                            for c_offset in [0, -1, 1, -2, 2]:
+                                t_c = c_idx + c_offset
+                                if 0 <= t_c < len(sub_row):
+                                    val = sub_row[t_c].strip()
+                                    
+                                    # If it contains alphabetic text (teacher's name), return it!
+                                    if val and any(char.isalpha() for char in val):
+                                        if val.lower() not in ignored_words:
+                                            return val
+    except Exception:
+        pass
+
     return "None Assigned"
     
     # Try both sheet GID and named sheet exports via gviz
