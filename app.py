@@ -67,15 +67,9 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
-    """
-    Parses the sheet as a sequential stream of cell values.
-    Locates the target day token ('20') and returns the first valid teacher name 
-    encountered immediately after it.
-    """
     target_day = str(now_datetime.day)
     url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
     
-    # Header keywords, month names, and day headers to skip
     ignored_words = {
         'nan', 'none', 'null', '0', '2026', 'notes',
         'october', 'january', 'february', 'march', 'april', 'may', 'june',
@@ -87,7 +81,7 @@ def get_daily_responsibility(cal_id, now_datetime):
     try:
         df = pd.read_csv(url, header=None).fillna("").astype(str)
         
-        # Flatten the entire table into a single list of non-empty cell strings
+        # Flatten all non-empty values into a sequence
         cells = []
         for r in range(len(df)):
             for c in range(len(df.columns)):
@@ -95,26 +89,29 @@ def get_daily_responsibility(cal_id, now_datetime):
                 if val:
                     cells.append(val)
                     
-        # Find '20' in the token list and scan ahead for the next teacher name
+        # --- ON-SCREEN DIAGNOSTIC DISPLAY ---
+        st.subheader("🔍 RAW CELL STREAM FROM GOOGLE")
+        st.write(cells)
+        
         for i, token in enumerate(cells):
             clean_token = token.split('.')[0]
-            
-            # Match exact date '20' (and not '2026')
             if clean_token == target_day and len(token) <= 4:
-                # Inspect the next 10 cells in reading order
-                for next_val in cells[i+1 : i+11]:
+                st.info(f" Found '{target_day}' at position {i} in cell list!")
+                
+                # Check next 10 items
+                next_items = cells[i+1 : i+11]
+                st.write(f"Tokens following '{target_day}':", next_items)
+                
+                for next_val in next_items:
                     clean_next = next_val.strip()
-                    
-                    # Stop if we hit the next day number (e.g. '21')
-                    if clean_next.isdigit() and clean_next != target_day:
-                        break
-                        
-                    # If it contains letters and isn't a month/day header, it's our teacher!
                     if any(char.isalpha() for char in clean_next):
                         if clean_next.lower() not in ignored_words:
+                            st.success(f"Selected match: '{clean_next}'")
                             return clean_next
-    except Exception:
-        pass
+                            
+        st.error(f"Could not locate date token '{target_day}' inside cell list.")
+    except Exception as e:
+        st.error(f"Download Exception: {e}")
         
     return "None Assigned"
     
