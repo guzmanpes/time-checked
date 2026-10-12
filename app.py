@@ -2,9 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import pytz
-import re
 import requests
-from bs4 import BeautifulSoup
+from html.parser import HTMLParser
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", initial_sidebar_state="collapsed")
@@ -65,11 +64,37 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# --- NATIVE HTML PARSER (NO EXTRA LIBRARIES REQUIRED) ---
+class GoogleSheetHTMLParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.grid = []
+        self.current_row = []
+        self.in_cell = False
+        self.cell_data = ""
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ['td', 'th']:
+            self.in_cell = True
+            self.cell_data = ""
+
+    def handle_endtag(self, tag):
+        if tag in ['td', 'th']:
+            self.in_cell = False
+            self.current_row.append(self.cell_data.strip())
+        elif tag == 'tr':
+            if any(self.current_row):
+                self.grid.append(self.current_row)
+            self.current_row = []
+
+    def handle_data(self, data):
+        if self.in_cell:
+            self.cell_data += data
+
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Parses Google Sheet HTML web table directly using BeautifulSoup.
-    Guarantees text extraction from dark-themed or styled calendar grids.
+    Parses Google Sheet HTML web table directly using standard library HTMLParser.
     """
     target_day = str(now_datetime.day)
     
@@ -86,15 +111,10 @@ def get_daily_responsibility(cal_id, now_datetime):
     try:
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
+            parser = GoogleSheetHTMLParser()
+            parser.feed(response.text)
+            matrix = parser.grid
             
-            # Reconstruct HTML matrix from <tr> and <td>
-            matrix = []
-            for tr in soup.find_all('tr'):
-                row_data = [td.get_text(strip=True) for td in tr.find_all(['td', 'th'])]
-                if any(row_data):
-                    matrix.append(row_data)
-                    
             # Scan matrix for target day '20'
             for r_idx, row in enumerate(matrix):
                 for c_idx, cell in enumerate(row):
