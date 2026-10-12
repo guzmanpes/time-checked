@@ -68,38 +68,51 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Locates today's date in the grid and searches the immediate row/column 
-    neighborhood below it to catch names displaced by merged cells.
+    Parses the sheet as a sequential stream of cell values.
+    Locates the target day token ('20') and returns the first valid teacher name 
+    encountered immediately after it.
     """
     target_day = str(now_datetime.day)
     url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
     
-    ignored_words = {'nan', 'none', 'null', '0', 'october', 'notes', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'}
+    # Header keywords, month names, and day headers to skip
+    ignored_words = {
+        'nan', 'none', 'null', '0', '2026', 'notes',
+        'october', 'january', 'february', 'march', 'april', 'may', 'june',
+        'july', 'august', 'september', 'november', 'december',
+        'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
+        'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
+    }
     
     try:
         df = pd.read_csv(url, header=None).fillna("").astype(str)
         
-        for r_idx in range(len(df)):
-            for c_idx in range(len(df.columns)):
-                cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
-                
-                # Match exact day number (excluding year 2026 or long string cells)
-                if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
+        # Flatten the entire table into a single list of non-empty cell strings
+        cells = []
+        for r in range(len(df)):
+            for c in range(len(df.columns)):
+                val = str(df.iloc[r, c]).strip()
+                if val:
+                    cells.append(val)
                     
-                    # Scan rows r+1 and r+2
-                    for r_offset in [1, 2]:
-                        t_r = r_idx + r_offset
-                        if t_r < len(df):
-                            # Scan surrounding columns (from c_idx - 12 to c_idx + 2) to catch shifted merged cells
-                            for c_offset in range(-12, 3):
-                                t_c = c_idx + c_offset
-                                if 0 <= t_c < len(df.columns):
-                                    candidate = str(df.iloc[t_r, t_c]).strip()
-                                    
-                                    # Ensure cell contains letters and is not a header keyword or date number
-                                    if candidate and any(char.isalpha() for char in candidate):
-                                        if candidate.lower() not in ignored_words:
-                                            return candidate
+        # Find '20' in the token list and scan ahead for the next teacher name
+        for i, token in enumerate(cells):
+            clean_token = token.split('.')[0]
+            
+            # Match exact date '20' (and not '2026')
+            if clean_token == target_day and len(token) <= 4:
+                # Inspect the next 10 cells in reading order
+                for next_val in cells[i+1 : i+11]:
+                    clean_next = next_val.strip()
+                    
+                    # Stop if we hit the next day number (e.g. '21')
+                    if clean_next.isdigit() and clean_next != target_day:
+                        break
+                        
+                    # If it contains letters and isn't a month/day header, it's our teacher!
+                    if any(char.isalpha() for char in clean_next):
+                        if clean_next.lower() not in ignored_words:
+                            return clean_next
     except Exception:
         pass
         
