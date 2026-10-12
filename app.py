@@ -9,7 +9,7 @@ st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", ini
 
 # --- 2. SETTINGS & SHEET IDs ---
 SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
-CALENDAR_SHEET_ID = "1yG2Fe00Tw8t_ypLU4I2_zDtwi7l1ZG3tf5huhVhmNOA"
+CALENDAR_SHEET_ID = "1j0YO44sn1D5jerX--ycQpwS96utTBPgDXW96ro0DG44"  # Personal Gmail Sheet ID
 OCTOBER_GID = "888205070"
 
 ANCHOR_DATE = date(2026, 5, 25) 
@@ -63,16 +63,13 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. CALENDAR LOOKUP FUNCTION (PUBLISHED CSV FEED) ---
-# --- 4. CALENDAR LOOKUP FUNCTION (DIAGNOSTIC) ---
-# --- 4. CALENDAR LOOKUP FUNCTION (PUBHTML ROUTE) ---
+# --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Parses Google's published HTML web view directly using pandas.read_html.
-    This bypasses Google Workspace 401 API restrictions on server requests.
+    Pulls live calendar duty from public personal Gmail Google Sheet CSV endpoint.
     """
     target_day = str(now_datetime.day)
-    pub_html_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/pubhtml?gid={OCTOBER_GID}&single=true"
+    csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
     
     ignored_words = {
         'nan', 'none', 'null', '0', '2026', 'notes',
@@ -83,32 +80,28 @@ def get_daily_responsibility(cal_id, now_datetime):
     }
 
     try:
-        # Use custom headers to simulate a standard browser GET request
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        res = requests.get(pub_html_url, headers=headers, timeout=5)
+        df = pd.read_csv(csv_url, header=None).fillna("").astype(str)
         
-        if res.status_code == 200:
-            tables = pd.read_html(res.text)
-            if tables:
-                df = tables[0].fillna("").astype(str)
+        # Scan 2D grid line-by-line
+        for r_idx in range(len(df)):
+            for c_idx in range(len(df.columns)):
+                cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
                 
-                # Search row by row for target day ('20')
-                for r_idx in range(len(df)):
-                    for c_idx in range(len(df.columns)):
-                        cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
-                        
-                        if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
-                            # Scan rows directly beneath in the same column
-                            for r_offset in [1, 2]:
-                                if r_idx + r_offset < len(df):
-                                    for c_offset in [0, -1, 1]:
-                                        t_c = c_idx + c_offset
-                                        if 0 <= t_c < len(df.columns):
-                                            candidate = str(df.iloc[r_idx + r_offset, t_c]).strip()
-                                            
-                                            if candidate and any(char.isalpha() for char in candidate):
-                                                if candidate.lower() not in ignored_words:
-                                                    return candidate
+                # Match exact day number (e.g. '20')
+                if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
+                    
+                    # Scan rows directly beneath in the same column and adjacent offsets
+                    for r_offset in [1, 2]:
+                        if r_idx + r_offset < len(df):
+                            for c_offset in [0, -1, 1]:
+                                t_c = c_idx + c_offset
+                                if 0 <= t_c < len(df.columns):
+                                    candidate = str(df.iloc[r_idx + r_offset, t_c]).strip()
+                                    
+                                    # Return match if it contains a teacher's name
+                                    if candidate and any(char.isalpha() for char in candidate):
+                                        if candidate.lower() not in ignored_words:
+                                            return candidate
     except Exception:
         pass
 
