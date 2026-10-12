@@ -10,7 +10,7 @@ st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", ini
 # --- 2. SETTINGS & SHEET IDs ---
 SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
 CALENDAR_SHEET_ID = "1j0YO44sn1D5jerX--ycQpwS96utTBPgDXW96ro0DG44"  # Personal Gmail Sheet ID
-OCTOBER_GID = "1235635239"  # Updated GID
+OCTOBER_GID = "1235635239"  # Active October Tab GID
 
 ANCHOR_DATE = date(2026, 5, 25) 
 
@@ -66,11 +66,10 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Pulls live calendar duty from public personal Gmail Google Sheet CSV endpoint
-    using tab GID (1235635239).
+    Pulls live duty assignments directly from the public Google Sheet CSV endpoint.
+    Scans the 2D matrix for the current day of the month.
     """
     target_day = str(now_datetime.day)
-    
     csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
     
     ignored_words = {
@@ -84,15 +83,13 @@ def get_daily_responsibility(cal_id, now_datetime):
     try:
         df = pd.read_csv(csv_url, header=None).fillna("").astype(str)
         
-        # Scan 2D grid line-by-line
+        # Scan 2D grid line-by-line for current day number
         for r_idx in range(len(df)):
             for c_idx in range(len(df.columns)):
                 cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
                 
-                # Match exact day number ('20')
                 if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
-                    
-                    # Inspect rows directly beneath in same column and adjacent offsets
+                    # Scan rows directly beneath in same column and adjacent offsets
                     for r_offset in [1, 2]:
                         if r_idx + r_offset < len(df):
                             for c_offset in [0, -1, 1, -2, 2]:
@@ -100,7 +97,6 @@ def get_daily_responsibility(cal_id, now_datetime):
                                 if 0 <= t_c < len(df.columns):
                                     candidate = str(df.iloc[r_idx + r_offset, t_c]).strip()
                                     
-                                    # Return teacher name match
                                     if candidate and any(char.isalpha() for char in candidate):
                                         if candidate.lower() not in ignored_words:
                                             return candidate
@@ -123,8 +119,8 @@ def get_current_rotation_day(today_date, anchor_date):
 def update_dashboard():
     local_tz = pytz.timezone('US/Pacific') 
     
-    # MOCK TIME FOR TESTING: Tuesday, October 20, 2026 @ 10:15 AM
-    now = local_tz.localize(datetime(2026, 10, 20, 10, 15, 0))
+    # LIVE REAL-TIME CLOCK (Pacific Time)
+    now = datetime.now(local_tz)
     
     current_date_str = now.strftime("%B %d, %Y")
     current_day_of_week = now.strftime("%A")
@@ -139,7 +135,7 @@ def update_dashboard():
     rounded_minute = (now.minute // 5) * 5
     current_slot = now.replace(minute=rounded_minute, second=0, microsecond=0).strftime("%H:%M")
 
-    # Fetch dynamic duty from Calendar sheet ("Genesis")
+    # Fetch live duty from Calendar sheet
     daily_duty = get_daily_responsibility(CALENDAR_SHEET_ID, now)
 
     # --- HEADER ---
@@ -187,7 +183,7 @@ def update_dashboard():
             render_row(bot_tier)
             render_row(other_tier)
             
-            # Metric card for Calendar Responsibility with updated label
+            # Metric card for Bilingual Associate on Call
             st.columns(1)[0].metric(label="Bilingual Associate on call", value=daily_duty)
             
         else:
