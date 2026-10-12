@@ -64,50 +64,29 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 4. CALENDAR LOOKUP FUNCTION (PUBLISHED CSV FEED) ---
+# --- 4. CALENDAR LOOKUP FUNCTION (DIAGNOSTIC) ---
 def get_daily_responsibility(cal_id, now_datetime):
-    """
-    Reads directly from Google Sheet's Published CSV endpoint (/pub?output=csv).
-    This bypasses Google's login/gviz authentication blocks on Streamlit Cloud.
-    """
     target_day = str(now_datetime.day)
-    
-    # Direct Published CSV endpoint
     pub_csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/pub?gid={OCTOBER_GID}&single=true&output=csv"
     
-    ignored_words = {
-        'nan', 'none', 'null', '0', '2026', 'notes',
-        'october', 'january', 'february', 'march', 'april', 'may', 'june',
-        'july', 'august', 'september', 'november', 'december',
-        'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
-        'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
-    }
-
     try:
-        df = pd.read_csv(pub_csv_url, header=None).fillna("").astype(str)
+        res = requests.get(pub_csv_url, timeout=5)
+        st.error(f"HTTP Status: {res.status_code}")
+        st.code(res.text[:300], language="html") # Displays raw content response
         
-        # Search every row and column for day number (e.g., '20')
+        df = pd.read_csv(pub_csv_url, header=None).fillna("").astype(str)
+        st.write("Parsed DataFrame shape:", df.shape)
+        
         for r_idx in range(len(df)):
             for c_idx in range(len(df.columns)):
                 cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
-                
-                # Match exact date number (excluding length > 4 strings like years)
-                if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
-                    
-                    # Scan rows directly beneath in the same column and adjacent offsets
-                    for r_offset in [1, 2]:
-                        if r_idx + r_offset < len(df):
-                            for c_offset in [0, -1, 1]:
-                                t_c = c_idx + c_offset
-                                if 0 <= t_c < len(df.columns):
-                                    candidate = str(df.iloc[r_idx + r_offset, t_c]).strip()
-                                    
-                                    # If cell contains teacher name text, return it
-                                    if candidate and any(char.isalpha() for char in candidate):
-                                        if candidate.lower() not in ignored_words:
-                                            return candidate
-    except Exception:
-        pass
-
+                if cell_val == target_day:
+                    st.success(f"Match found at Row {r_idx}, Col {c_idx}")
+                    if r_idx + 1 < len(df):
+                        return str(df.iloc[r_idx + 1, c_idx]).strip()
+    except Exception as e:
+        st.error(f"Fetch Exception: {e}")
+        
     return "None Assigned"
 
 # --- 5. ROTATION DAY CALCULATION ---
