@@ -65,11 +65,25 @@ st.markdown("""
 
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
-    """
-    Finds the exact target day number in the calendar grid and fetches 
-    the duty name directly from the row beneath it.
-    """
-    target_day = str(now_datetime.day)
+    url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
+    try:
+        df = pd.read_csv(url, header=None).fillna("").astype(str)
+        st.subheader("🔍 CALENDAR DEBUGGER (RAW CSV GRID)")
+        st.dataframe(df)  # Displays the full interactive raw table on screen!
+        
+        target_day = str(now_datetime.day)
+        for r_idx in range(len(df)):
+            for c_idx in range(len(df.columns)):
+                cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
+                if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
+                    val_below = str(df.iloc[r_idx + 1, c_idx]).strip() if r_idx + 1 < len(df) else "N/A"
+                    st.warning(f"Found '20' at Row {r_idx}, Col {c_idx}! Cell directly below contains: '{val_below}'")
+                    if val_below and val_below.lower() not in ['nan', 'none', 'null', '0']:
+                        return val_below
+    except Exception as e:
+        st.error(f"Fetch Error: {e}")
+        
+    return "None Assigned"
     
     # Try both sheet GID and named sheet exports via gviz
     urls = [
