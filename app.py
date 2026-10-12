@@ -65,28 +65,39 @@ st.markdown("""
 
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 # --- 4. CALENDAR LOOKUP FUNCTION ---
+# --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
+    """
+    Finds the exact target day (20) in the grid, but restricts the lookup
+    to the calendar columns (Columns B-H / indices 1-7) to prevent un-merged 
+    ghost column shifts.
+    """
     target_day = str(now_datetime.day)
-    
-    # Try fetching via CSV export
     url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
     
     try:
         df = pd.read_csv(url, header=None).fillna("").astype(str)
-        st.subheader("🔍 RAW CSV GRID DATA")
-        st.dataframe(df)
         
+        # Search row by row for target day
         for r_idx in range(len(df)):
             for c_idx in range(len(df.columns)):
                 cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
-                if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
-                    val_below = str(df.iloc[r_idx + 1, c_idx]).strip() if r_idx + 1 < len(df) else "N/A"
-                    st.success(f"Matched Day {target_day} at Row {r_idx}, Col {c_idx}! Below: '{val_below}'")
-                    return val_below
-                    
-        st.error(f"Could not find cell with number '{target_day}' in the returned sheet!")
-    except Exception as e:
-        st.error(f"Google Sheet Fetch Error: {str(e)}")
+                
+                # Match exact day 20 (ignoring expanded ghost columns > 8)
+                if cell_val == target_day and c_idx <= 8 and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
+                    # Check row below in same column and adjacent columns (handles merged offset)
+                    for r_offset in [1, 2]:
+                        for c_offset in [0, -1, 1]:
+                            t_r = r_idx + r_offset
+                            t_c = c_idx + c_offset
+                            if t_r < len(df) and 0 <= t_c < len(df.columns):
+                                candidate = str(df.iloc[t_r, t_c]).strip()
+                                # Check if cell is an actual teacher name
+                                if candidate and any(c.isalpha() for c in candidate):
+                                    if candidate.lower() not in ['nan', 'none', 'null', '0', 'october', 'notes']:
+                                        return candidate
+    except Exception:
+        pass
         
     return "None Assigned"
     
