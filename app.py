@@ -3,8 +3,6 @@ import pandas as pd
 from datetime import datetime, date
 import pytz
 import re
-import requests
-import json
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", initial_sidebar_state="collapsed")
@@ -68,62 +66,38 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Parses Google Sheets JSON output with fuzzy date matching to prevent cell-format mismatches.
+    Scans the calendar grid for a cell containing today's day number (e.g., '20').
+    Extracts the teacher duty name directly from inside or immediately adjacent to that cell.
     """
     target_day = str(now_datetime.day)
     
-    ignored_words = {
-        'nan', 'none', 'null', '0', 'nan.0', '2026',
-        'january', 'february', 'march', 'april', 'may', 'june',
-        'july', 'august', 'september', 'october', 'november', 'december',
-        'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
-        'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
-        'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
-    }
-
-    json_urls = [
-        f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:json&gid={OCTOBER_GID}",
-        f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:json&sheet=OCT"
-    ]
-
-    for url in json_urls:
-        try:
-            res = requests.get(url, timeout=5)
-            if res.status_code == 200:
-                json_str = res.text.split("google.visualization.Query.setResponse(")[1].rsplit(");", 1)[0]
-                data = json.loads(json_str)
+    url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
+    
+    try:
+        df = pd.read_csv(url, header=None).fillna("").astype(str)
+        
+        for r_idx in range(len(df)):
+            for c_idx in range(len(df.columns)):
+                cell_val = str(df.iloc[r_idx, c_idx]).strip()
                 
-                rows = data.get('table', {}).get('rows', [])
-                grid = []
-                for row in rows:
-                    r_data = []
-                    for c in row.get('c', []):
-                        if c:
-                            # Prefer formatted string 'f', fallback to raw value 'v'
-                            val = c.get('f') or c.get('v') or ""
-                            r_data.append(str(val).strip())
-                        else:
-                            r_data.append("")
-                    grid.append(r_data)
-                
-                # Search grid for target day number (handles '20', '20.0', 'Date(2026,9,20)')
-                for r_idx, row in enumerate(grid):
-                    for c_idx, cell in enumerate(row):
-                        # Match 20 as exact word or last integer in date constructor
-                        if re.search(rf"\b{target_day}\b", cell):
-                            # Scan 4 rows down in column c_idx and adjacent columns
-                            for r_offset in range(1, 5):
-                                if r_idx + r_offset < len(grid):
-                                    for c_offset in [0, -1, 1, -2, 2]:
-                                        t_c = c_idx + c_offset
-                                        if 0 <= t_c < len(grid[r_idx + r_offset]):
-                                            val = grid[r_idx + r_offset][t_c]
-                                            if val and any(char.isalpha() for char in val):
-                                                if val.lower() not in ignored_words:
-                                                    return val
-        except Exception:
-            continue
-
+                # Check if the target day '20' is in this cell
+                # Handles "20 Genesis", "20\nGenesis", "20", etc.
+                if re.search(rf"\b{target_day}\b", cell_val):
+                    # Remove the day number '20' and clean up remaining text
+                    cleaned_name = re.sub(rf"\b{target_day}\b", "", cell_val).strip()
+                    
+                    # Case A: Name was in the SAME cell (e.g. "20 Genesis")
+                    if cleaned_name and any(c.isalpha() for c in cleaned_name):
+                        return cleaned_name
+                    
+                    # Case B: Name is in the cell directly below it
+                    if r_idx + 1 < len(df):
+                        below_val = str(df.iloc[r_idx + 1, c_idx]).strip()
+                        if below_val and any(c.isalpha() for c in below_val):
+                            return below_val
+    except Exception:
+        pass
+        
     return "None Assigned"
 
 # --- 5. ROTATION DAY CALCULATION ---
