@@ -68,8 +68,7 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Parses Google Sheets raw JSON endpoint to ensure zero column shifting from merged cells.
-    Finds the exact day number and returns the duty name directly underneath.
+    Parses Google Sheets JSON output with fuzzy date matching to prevent cell-format mismatches.
     """
     target_day = str(now_datetime.day)
     
@@ -82,7 +81,6 @@ def get_daily_responsibility(cal_id, now_datetime):
         'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
     }
 
-    # Query structured JSON matrix directly from Google Visualization API
     json_urls = [
         f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:json&gid={OCTOBER_GID}",
         f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:json&sheet=OCT"
@@ -92,32 +90,31 @@ def get_daily_responsibility(cal_id, now_datetime):
         try:
             res = requests.get(url, timeout=5)
             if res.status_code == 200:
-                # Strip Google's JSON wrapper padding
                 json_str = res.text.split("google.visualization.Query.setResponse(")[1].rsplit(");", 1)[0]
                 data = json.loads(json_str)
                 
                 rows = data.get('table', {}).get('rows', [])
-                
-                # Reconstruct full cell grid
                 grid = []
                 for row in rows:
                     r_data = []
                     for c in row.get('c', []):
-                        if c and 'v' in c and c['v'] is not None:
-                            r_data.append(str(c['v']).strip())
+                        if c:
+                            # Prefer formatted string 'f', fallback to raw value 'v'
+                            val = c.get('f') or c.get('v') or ""
+                            r_data.append(str(val).strip())
                         else:
                             r_data.append("")
                     grid.append(r_data)
                 
-                # Find date number cell (e.g. '20')
+                # Search grid for target day number (handles '20', '20.0', 'Date(2026,9,20)')
                 for r_idx, row in enumerate(grid):
                     for c_idx, cell in enumerate(row):
-                        clean_cell = cell.split('.')[0]
-                        if clean_cell == target_day:
-                            # Scan rows below directly in this column and adjacent merged columns
+                        # Match 20 as exact word or last integer in date constructor
+                        if re.search(rf"\b{target_day}\b", cell):
+                            # Scan 4 rows down in column c_idx and adjacent columns
                             for r_offset in range(1, 5):
                                 if r_idx + r_offset < len(grid):
-                                    for c_offset in [0, -1, 1]:
+                                    for c_offset in [0, -1, 1, -2, 2]:
                                         t_c = c_idx + c_offset
                                         if 0 <= t_c < len(grid[r_idx + r_offset]):
                                             val = grid[r_idx + r_offset][t_c]
