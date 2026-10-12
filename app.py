@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, date
 import pytz
 import requests
-from html.parser import HTMLParser
+import json
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", initial_sidebar_state="collapsed")
@@ -64,63 +64,70 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- NATIVE HTML PARSER (NO EXTRA LIBRARIES REQUIRED) ---
-class GoogleSheetHTMLParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.grid = []
-        self.current_row = []
-        self.in_cell = False
-        self.cell_data = ""
-
-    def handle_starttag(self, tag, attrs):
-        if tag in ['td', 'th']:
-            self.in_cell = True
-            self.cell_data = ""
-
-    def handle_endtag(self, tag):
-        if tag in ['td', 'th']:
-            self.in_cell = False
-            self.current_row.append(self.cell_data.strip())
-        elif tag == 'tr':
-            if any(self.current_row):
-                self.grid.append(self.current_row)
-            self.current_row = []
-
-    def handle_data(self, data):
-        if self.in_cell:
-            self.cell_data += data
-
-# --- 4. CALENDAR LOOKUP FUNCTION ---
-# --- 4. CALENDAR LOOKUP FUNCTION (HTML DIAGNOSTIC) ---
+# --- 4. CALENDAR LOOKUP FUNCTION (GVIZ JSON) ---
 def get_daily_responsibility(cal_id, now_datetime):
+    """
+    Fetches the calendar tab using Google's Visualization JSON API.
+    Parses formatted cell text directly from cell objects, preserving names 
+    regardless of dark fill colors or sheet styling.
+    """
     target_day = str(now_datetime.day)
-    url = f"https://docs.google.com/spreadsheets/d/{cal_id}/htmlview?gid={OCTOBER_GID}"
+    url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?gid={OCTOBER_GID}&tqx=out:json"
     
+    ignored_words = {
+        'nan', 'none', 'null', '0', '2026', 'notes',
+        'october', 'january', 'february', 'march', 'april', 'may', 'june',
+        'july', 'august', 'september', 'november', 'december',
+        'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
+        'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
+    }
+
     try:
-        response = requests.get(url, timeout=5)
-        st.write(f"HTTP Response Status: {response.status_code}")
-        
-        parser = GoogleSheetHTMLParser()
-        parser.feed(response.text)
-        matrix = parser.grid
-        
-        st.subheader("🔍 HTML PARSED MATRIX")
-        st.write(matrix)
-        
-        for r_idx, row in enumerate(matrix):
-            for c_idx, cell in enumerate(row):
-                clean_cell = cell.split('.')[0]
-                if clean_cell == target_day and len(cell) <= 4:
-                    st.success(f"Found day '{target_day}' at Row {r_idx}, Col {c_idx}")
-                    if r_idx + 1 < len(matrix):
-                        sub_row = matrix[r_idx + 1]
-                        st.info(f"Row directly beneath (Row {r_idx + 1}): {sub_row}")
-                        if c_idx < len(sub_row):
-                            return sub_row[c_idx]
-    except Exception as e:
-        st.error(f"HTML Fetch Error: {str(e)}")
-        
+        res = requests.get(url, timeout=5)
+        if res.status_code == 200:
+            # Strip GViz JavaScript wrapper padding: google.visualization.Query.setResponse({...});
+            raw_text = res.text
+            json_str = raw_text[raw_text.find('{'):raw_text.rfind('}')+1]
+            data = json.loads(json_str)
+            
+            # Extract row matrix of cell text values
+            table = data.get('table', {})
+            rows = table.get('rows', [])
+            
+            grid = []
+            for r in rows:
+                row_vals = []
+                for c in r.get('c', []) or []:
+                    if c and 'v' in c and c['v'] is not None:
+                        # Use formatted value 'f' if available, otherwise raw value 'v'
+                        val = str(c.get('f', c.get('v'))).strip()
+                        row_vals.append(val)
+                    else:
+                        row_vals.append("")
+                grid.append(row_vals)
+                
+            # Scan grid for target day (e.g. '20')
+            for r_idx, row in enumerate(grid):
+                for c_idx, cell in enumerate(row):
+                    clean_cell = cell.split('.')[0]
+                    
+                    if clean_cell == target_day and len(cell) <= 4:
+                        # Check row directly beneath in the same column (r_idx + 1)
+                        if r_idx + 1 < len(grid):
+                            sub_row = grid[r_idx + 1]
+                            
+                            for c_offset in [0, -1, 1, -2, 2]:
+                                t_c = c_idx + c_offset
+                                if 0 <= t_c < len(sub_row):
+                                    candidate = sub_row[t_c].strip()
+                                    
+                                    # If cell contains teacher name text, return it!
+                                    if candidate and any(char.isalpha() for char in candidate):
+                                        if candidate.lower() not in ignored_words:
+                                            return candidate
+    except Exception:
+        pass
+
     return "None Assigned"
 
 # --- 5. ROTATION DAY CALCULATION ---
