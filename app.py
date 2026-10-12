@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import pytz
-import re
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", initial_sidebar_state="collapsed")
@@ -66,35 +65,29 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Scans the calendar grid for a cell containing today's day number (e.g., '20').
-    Extracts the teacher duty name directly from inside or immediately adjacent to that cell.
+    Finds the exact day number (e.g., '20') in the date row, 
+    and returns the name from the row directly beneath it.
     """
     target_day = str(now_datetime.day)
-    
     url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
     
     try:
         df = pd.read_csv(url, header=None).fillna("").astype(str)
         
+        # Scan each row in the CSV export
         for r_idx in range(len(df)):
             for c_idx in range(len(df.columns)):
-                cell_val = str(df.iloc[r_idx, c_idx]).strip()
+                cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
                 
-                # Check if the target day '20' is in this cell
-                # Handles "20 Genesis", "20\nGenesis", "20", etc.
-                if re.search(rf"\b{target_day}\b", cell_val):
-                    # Remove the day number '20' and clean up remaining text
-                    cleaned_name = re.sub(rf"\b{target_day}\b", "", cell_val).strip()
-                    
-                    # Case A: Name was in the SAME cell (e.g. "20 Genesis")
-                    if cleaned_name and any(c.isalpha() for c in cleaned_name):
-                        return cleaned_name
-                    
-                    # Case B: Name is in the cell directly below it
+                # Check for exact date number (e.g. '20')
+                if cell_val == target_day:
+                    # Pull from the row directly beneath it (r_idx + 1)
                     if r_idx + 1 < len(df):
-                        below_val = str(df.iloc[r_idx + 1, c_idx]).strip()
-                        if below_val and any(c.isalpha() for c in below_val):
-                            return below_val
+                        duty_name = str(df.iloc[r_idx + 1, c_idx]).strip()
+                        
+                        # Validate that it's a name, not blank or another number
+                        if duty_name and duty_name.lower() not in ['nan', 'none', 'null', '0']:
+                            return duty_name
     except Exception:
         pass
         
