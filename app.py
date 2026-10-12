@@ -4,7 +4,7 @@ from datetime import datetime, date
 import pytz
 import re
 import requests
-from bs4 import BeautifulSoup
+from html.parser import HTMLParser
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", initial_sidebar_state="collapsed")
@@ -65,10 +65,38 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# --- STANDARD LIBRARY HTML PARSER CLASS ---
+class GoogleSheetHTMLParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.grid = []
+        self.current_row = []
+        self.in_cell = False
+        self.cell_data = ""
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ['td', 'th']:
+            self.in_cell = True
+            self.cell_data = ""
+        elif tag == 'tr':
+            self.current_row = []
+
+    def handle_endtag(self, tag):
+        if tag in ['td', 'th']:
+            self.in_cell = False
+            self.current_row.append(self.cell_data.strip())
+        elif tag == 'tr':
+            if any(self.current_row):
+                self.grid.append(self.current_row)
+
+    def handle_data(self, data):
+        if self.in_cell:
+            self.cell_data += data
+
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Parses the published HTML grid to maintain exact merged-cell geometry.
+    Parses the published Google Sheet HTML table grid using Python's built-in html.parser.
     Finds today's day number and retrieves the duty assignment directly beneath it.
     """
     target_day = str(now_datetime.day)
@@ -82,25 +110,21 @@ def get_daily_responsibility(cal_id, now_datetime):
         'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
     }
 
-    # Approach 1: Parse HTML structure directly from public sheet view
+    # Approach 1: Parse HTML grid with standard library HTMLParser
     try:
         html_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/htmlview?gid={OCTOBER_GID}"
         res = requests.get(html_url, timeout=5)
         if res.status_code == 200:
-            soup = BeautifulSoup(res.text, 'html.parser')
-            rows = soup.find_all('tr')
-            grid = []
-            for r in rows:
-                cols = [td.get_text(strip=True) for td in r.find_all(['td', 'th'])]
-                if any(cols):
-                    grid.append(cols)
+            parser = GoogleSheetHTMLParser()
+            parser.feed(res.text)
+            grid = parser.grid
             
-            # Find the target day number
+            # Locate target day number
             for r_idx, row in enumerate(grid):
                 for c_idx, cell in enumerate(row):
                     clean_cell = cell.strip()
                     if clean_cell == target_day or clean_cell == f"{target_day}.0":
-                        # Look in subsequent rows at or near this column index
+                        # Scan subsequent rows directly at or near this column index
                         for r_offset in range(1, 5):
                             if r_idx + r_offset < len(grid):
                                 sub_row = grid[r_idx + r_offset]
@@ -114,7 +138,7 @@ def get_daily_responsibility(cal_id, now_datetime):
     except Exception:
         pass
 
-    # Approach 2: CSV Fallback with Regex Boundary
+    # Approach 2: CSV Fallback
     try:
         csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
         df = pd.read_csv(csv_url, header=None).fillna("").astype(str)
@@ -166,7 +190,7 @@ def update_dashboard():
     rounded_minute = (now.minute // 5) * 5
     current_slot = now.replace(minute=rounded_minute, second=0, microsecond=0).strftime("%H:%M")
 
-    # Fetch dynamic duty from Calendar sheet ("Genesis")
+    # Fetch dynamic duty from Calendar sheet
     daily_duty = get_daily_responsibility(CALENDAR_SHEET_ID, now)
 
     # --- HEADER ---
