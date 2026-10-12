@@ -65,8 +65,8 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Finds the exact day number (e.g., '20') in the date row, 
-    and returns the name from the row directly beneath it.
+    Finds today's day number in the grid (ignoring 2026 headers)
+    and extracts the name from the row directly underneath it.
     """
     target_day = str(now_datetime.day)
     url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
@@ -74,20 +74,22 @@ def get_daily_responsibility(cal_id, now_datetime):
     try:
         df = pd.read_csv(url, header=None).fillna("").astype(str)
         
-        # Scan each row in the CSV export
-        for r_idx in range(len(df)):
+        # Start scanning from row index 2 down to bypass top header titles (OCTOBER / 2026)
+        for r_idx in range(2, len(df)):
             for c_idx in range(len(df.columns)):
-                cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
+                cell_val = str(df.iloc[r_idx, c_idx]).strip()
                 
-                # Check for exact date number (e.g. '20')
-                if cell_val == target_day:
-                    # Pull from the row directly beneath it (r_idx + 1)
+                # Extract clean day number (handles '20', '20.0', but rejects '2026')
+                clean_num = cell_val.split('.')[0]
+                if clean_num == target_day and len(cell_val) <= 4:
+                    # Check cell directly below (r_idx + 1)
                     if r_idx + 1 < len(df):
                         duty_name = str(df.iloc[r_idx + 1, c_idx]).strip()
                         
-                        # Validate that it's a name, not blank or another number
-                        if duty_name and duty_name.lower() not in ['nan', 'none', 'null', '0']:
-                            return duty_name
+                        # Only return if it's actual text (like 'Genesis'), not blank or a date number
+                        if duty_name and any(c.isalpha() for c in duty_name):
+                            if duty_name.lower() not in ['nan', 'none', 'null', '0']:
+                                return duty_name
     except Exception:
         pass
         
