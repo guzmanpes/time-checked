@@ -3,6 +3,8 @@ import pandas as pd
 from datetime import datetime, date
 import pytz
 import re
+import requests
+from bs4 import BeautifulSoup
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", initial_sidebar_state="collapsed")
@@ -10,7 +12,7 @@ st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", ini
 # --- 2. SETTINGS & SHEET IDs ---
 SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
 CALENDAR_SHEET_ID = "1yG2Fe00Tw8t_ypLU4I2_zDtwi7l1ZG3tf5huhVhmNOA"
-OCTOBER_GID = "888205070"  # Direct GID for October tab
+OCTOBER_GID = "888205070"
 
 ANCHOR_DATE = date(2026, 5, 25) 
 
@@ -66,16 +68,10 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Robust grid search: Matches the day number (e.g. 20) regardless of CSV formatting,
-    then scans adjacent/underneath cells for teacher duty names while ignoring headers.
+    Parses the published HTML grid to maintain exact merged-cell geometry.
+    Finds today's day number and retrieves the duty assignment directly beneath it.
     """
-    target_day = now_datetime.day
-    
-    urls = [
-        f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}",
-        f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet=OCT",
-        f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet=October"
-    ]
+    target_day = str(now_datetime.day)
     
     ignored_words = {
         'nan', 'none', 'null', '0', 'nan.0', '2026',
@@ -85,35 +81,59 @@ def get_daily_responsibility(cal_id, now_datetime):
         'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
         'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
     }
-    
-    for url in urls:
-        try:
-            df = pd.read_csv(url, header=None).fillna("").astype(str)
+
+    # Approach 1: Parse HTML structure directly from public sheet view
+    try:
+        html_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/htmlview?gid={OCTOBER_GID}"
+        res = requests.get(html_url, timeout=5)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            rows = soup.find_all('tr')
+            grid = []
+            for r in rows:
+                cols = [td.get_text(strip=True) for td in r.find_all(['td', 'th'])]
+                if any(cols):
+                    grid.append(cols)
             
-            # Search entire dataframe grid for date cell
-            for r_idx in range(len(df)):
-                for c_idx in range(len(df.columns)):
-                    raw_val = df.iloc[r_idx, c_idx].strip()
-                    
-                    # Clean numeric extraction ('20.0' or '20\n' -> 20)
-                    match = re.search(r'^\b(\d{1,2})\b', raw_val)
-                    if match and int(match.group(1)) == target_day:
-                        # Scan rows immediately below (offsets 1 to 3)
-                        for r_offset in [1, 2, 3]:
-                            for c_offset in [0, -1, 1]:  # check same col, then adjacent cols for merged cells
-                                target_r = r_idx + r_offset
+            # Find the target day number
+            for r_idx, row in enumerate(grid):
+                for c_idx, cell in enumerate(row):
+                    clean_cell = cell.strip()
+                    if clean_cell == target_day or clean_cell == f"{target_day}.0":
+                        # Look in subsequent rows at or near this column index
+                        for r_offset in range(1, 5):
+                            if r_idx + r_offset < len(grid):
+                                sub_row = grid[r_idx + r_offset]
+                                for c_offset in [0, -1, 1, -2, 2]:
+                                    target_c = c_idx + c_offset
+                                    if 0 <= target_c < len(sub_row):
+                                        val = sub_row[target_c].strip()
+                                        if val and any(c.isalpha() for c in val):
+                                            if val.lower() not in ignored_words:
+                                                return val
+    except Exception:
+        pass
+
+    # Approach 2: CSV Fallback with Regex Boundary
+    try:
+        csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
+        df = pd.read_csv(csv_url, header=None).fillna("").astype(str)
+        for r_idx in range(len(df)):
+            for c_idx in range(len(df.columns)):
+                cell_val = df.iloc[r_idx, c_idx].strip()
+                if re.match(rf"^{target_day}(\.0)?$", cell_val):
+                    for r_offset in range(1, 5):
+                        if r_idx + r_offset < len(df):
+                            for c_offset in [0, -1, 1]:
                                 target_c = c_idx + c_offset
-                                
-                                if 0 <= target_r < len(df) and 0 <= target_c < len(df.columns):
-                                    cell_text = df.iloc[target_r, target_c].strip().replace('"', '')
-                                    
-                                    # Ensure it contains letters, isn't a plain number or header keyword
-                                    if cell_text and any(c.isalpha() for c in cell_text):
-                                        if cell_text.lower() not in ignored_words:
-                                            return cell_text
-        except Exception:
-            continue
-            
+                                if 0 <= target_c < len(df.columns):
+                                    val = df.iloc[r_idx + r_offset, target_c].strip()
+                                    if val and any(c.isalpha() for c in val):
+                                        if val.lower() not in ignored_words:
+                                            return val
+    except Exception:
+        pass
+
     return "None Assigned"
 
 # --- 5. ROTATION DAY CALCULATION ---
