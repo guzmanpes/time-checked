@@ -64,15 +64,14 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. CALENDAR LOOKUP FUNCTION (GVIZ JSON) ---
+# --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Fetches the calendar tab using Google's Visualization JSON API.
-    Parses formatted cell text directly from cell objects, preserving names 
-    regardless of dark fill colors or sheet styling.
+    Fetches the calendar tab as a structured 2D array using Google's GViz API
+    with tq=SELECT * to preserve exact cell grid row/column locations.
     """
     target_day = str(now_datetime.day)
-    url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?gid={OCTOBER_GID}&tqx=out:json"
+    url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?gid={OCTOBER_GID}&tq=SELECT%20*&tqx=out:json"
     
     ignored_words = {
         'nan', 'none', 'null', '0', '2026', 'notes',
@@ -85,46 +84,39 @@ def get_daily_responsibility(cal_id, now_datetime):
     try:
         res = requests.get(url, timeout=5)
         if res.status_code == 200:
-            # Strip GViz JavaScript wrapper padding: google.visualization.Query.setResponse({...});
             raw_text = res.text
             json_str = raw_text[raw_text.find('{'):raw_text.rfind('}')+1]
             data = json.loads(json_str)
             
-            # Extract row matrix of cell text values
             table = data.get('table', {})
             rows = table.get('rows', [])
             
+            # Reconstruct complete 2D matrix
             grid = []
             for r in rows:
                 row_vals = []
                 for c in r.get('c', []) or []:
                     if c and 'v' in c and c['v'] is not None:
-                        # Use formatted value 'f' if available, otherwise raw value 'v'
                         val = str(c.get('f', c.get('v'))).strip()
                         row_vals.append(val)
                     else:
                         row_vals.append("")
                 grid.append(row_vals)
                 
-            # Scan grid for target day (e.g. '20')
+            # Scan grid to find date (e.g. '20')
             for r_idx, row in enumerate(grid):
                 for c_idx, cell in enumerate(row):
                     clean_cell = cell.split('.')[0]
                     
                     if clean_cell == target_day and len(cell) <= 4:
-                        # Check row directly beneath in the same column (r_idx + 1)
+                        # Inspect cell directly underneath (r_idx + 1, c_idx)
                         if r_idx + 1 < len(grid):
                             sub_row = grid[r_idx + 1]
-                            
-                            for c_offset in [0, -1, 1, -2, 2]:
-                                t_c = c_idx + c_offset
-                                if 0 <= t_c < len(sub_row):
-                                    candidate = sub_row[t_c].strip()
-                                    
-                                    # If cell contains teacher name text, return it!
-                                    if candidate and any(char.isalpha() for char in candidate):
-                                        if candidate.lower() not in ignored_words:
-                                            return candidate
+                            if c_idx < len(sub_row):
+                                duty_name = sub_row[c_idx].strip()
+                                if duty_name and any(char.isalpha() for char in duty_name):
+                                    if duty_name.lower() not in ignored_words:
+                                        return duty_name
     except Exception:
         pass
 
