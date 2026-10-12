@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import pytz
+import re
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", initial_sidebar_state="collapsed")
@@ -65,34 +66,43 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Finds today's day number in the grid (ignoring 2026 headers)
-    and extracts the name from the row directly underneath it.
+    Finds the exact target day number in the calendar grid and fetches 
+    the duty name directly from the row beneath it.
     """
     target_day = str(now_datetime.day)
-    url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
     
-    try:
-        df = pd.read_csv(url, header=None).fillna("").astype(str)
-        
-        # Start scanning from row index 2 down to bypass top header titles (OCTOBER / 2026)
-        for r_idx in range(2, len(df)):
-            for c_idx in range(len(df.columns)):
-                cell_val = str(df.iloc[r_idx, c_idx]).strip()
-                
-                # Extract clean day number (handles '20', '20.0', but rejects '2026')
-                clean_num = cell_val.split('.')[0]
-                if clean_num == target_day and len(cell_val) <= 4:
-                    # Check cell directly below (r_idx + 1)
-                    if r_idx + 1 < len(df):
-                        duty_name = str(df.iloc[r_idx + 1, c_idx]).strip()
-                        
-                        # Only return if it's actual text (like 'Genesis'), not blank or a date number
-                        if duty_name and any(c.isalpha() for c in duty_name):
-                            if duty_name.lower() not in ['nan', 'none', 'null', '0']:
-                                return duty_name
-    except Exception:
-        pass
-        
+    # Try both sheet GID and named sheet exports via gviz
+    urls = [
+        f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&gid={OCTOBER_GID}",
+        f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet=OCT",
+        f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
+    ]
+    
+    for url in urls:
+        try:
+            # Force header=None so top banner rows don't shift row index offsets
+            df = pd.read_csv(url, header=None).fillna("").astype(str)
+            
+            for r_idx in range(len(df)):
+                for c_idx in range(len(df.columns)):
+                    cell_val = str(df.iloc[r_idx, c_idx]).strip()
+                    
+                    # Match exact day number (e.g., '20' or '20.0'), strictly excluding year '2026'
+                    clean_val = cell_val.split('.')[0]
+                    if clean_val == target_day and len(cell_val) <= 4:
+                        # Check up to 2 rows directly below in the same column
+                        for r_offset in [1, 2]:
+                            if r_idx + r_offset < len(df):
+                                duty_candidate = str(df.iloc[r_idx + r_offset, c_idx]).strip()
+                                
+                                # Verify candidate contains alphabetic characters and isn't a month/day header
+                                if duty_candidate and any(c.isalpha() for c in duty_candidate):
+                                    ignored = ['nan', 'none', 'null', '0', 'october', 'tuesday', 'notes']
+                                    if duty_candidate.lower() not in ignored:
+                                        return duty_candidate
+        except Exception:
+            continue
+            
     return "None Assigned"
 
 # --- 5. ROTATION DAY CALCULATION ---
