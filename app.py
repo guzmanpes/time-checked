@@ -67,11 +67,10 @@ st.markdown("""
 def get_daily_responsibility(cal_id, now_datetime):
     """
     Pulls live calendar duty from public personal Gmail Google Sheet CSV endpoint
-    using the updated tab GID (1235635239).
+    using tab GID (1235635239).
     """
     target_day = str(now_datetime.day)
     
-    # Target via direct GID export feed
     csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
     
     ignored_words = {
@@ -188,8 +187,8 @@ def update_dashboard():
             render_row(bot_tier)
             render_row(other_tier)
             
-            # Metric card for Calendar Responsibility
-            st.columns(1)[0].metric(label="DAILY RESPONSIBILITY / DUTY", value=daily_duty)
+            # Metric card for Calendar Responsibility with updated label
+            st.columns(1)[0].metric(label="Bilingual Associate on call", value=daily_duty)
             
         else:
             st.info(f"No activities scheduled for slot {current_slot} on {current_sheet}.")
