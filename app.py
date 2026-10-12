@@ -10,7 +10,7 @@ st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", ini
 # --- 2. SETTINGS & SHEET IDs ---
 SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
 CALENDAR_SHEET_ID = "1j0YO44sn1D5jerX--ycQpwS96utTBPgDXW96ro0DG44"  # Personal Gmail Sheet ID
-OCTOBER_GID = "888205070"
+OCTOBER_GID = "1235635239"  # Updated GID
 
 ANCHOR_DATE = date(2026, 5, 25) 
 
@@ -66,9 +66,12 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Pulls live calendar duty from public personal Gmail Google Sheet CSV endpoint.
+    Pulls live calendar duty from public personal Gmail Google Sheet CSV endpoint
+    using the updated tab GID (1235635239).
     """
     target_day = str(now_datetime.day)
+    
+    # Target via direct GID export feed
     csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
     
     ignored_words = {
@@ -87,18 +90,18 @@ def get_daily_responsibility(cal_id, now_datetime):
             for c_idx in range(len(df.columns)):
                 cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
                 
-                # Match exact day number (e.g. '20')
+                # Match exact day number ('20')
                 if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
                     
-                    # Scan rows directly beneath in the same column and adjacent offsets
+                    # Inspect rows directly beneath in same column and adjacent offsets
                     for r_offset in [1, 2]:
                         if r_idx + r_offset < len(df):
-                            for c_offset in [0, -1, 1]:
+                            for c_offset in [0, -1, 1, -2, 2]:
                                 t_c = c_idx + c_offset
                                 if 0 <= t_c < len(df.columns):
                                     candidate = str(df.iloc[r_idx + r_offset, t_c]).strip()
                                     
-                                    # Return match if it contains a teacher's name
+                                    # Return teacher name match
                                     if candidate and any(char.isalpha() for char in candidate):
                                         if candidate.lower() not in ignored_words:
                                             return candidate
