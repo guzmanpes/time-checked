@@ -64,24 +64,29 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 4. CALENDAR LOOKUP FUNCTION ---
+# --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
+    target_day = str(now_datetime.day)
+    
+    # Try fetching via CSV export
     url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
+    
     try:
         df = pd.read_csv(url, header=None).fillna("").astype(str)
-        st.subheader("🔍 CALENDAR DEBUGGER (RAW CSV GRID)")
-        st.dataframe(df)  # Displays the full interactive raw table on screen!
+        st.subheader("🔍 RAW CSV GRID DATA")
+        st.dataframe(df)
         
-        target_day = str(now_datetime.day)
         for r_idx in range(len(df)):
             for c_idx in range(len(df.columns)):
                 cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
                 if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
                     val_below = str(df.iloc[r_idx + 1, c_idx]).strip() if r_idx + 1 < len(df) else "N/A"
-                    st.warning(f"Found '20' at Row {r_idx}, Col {c_idx}! Cell directly below contains: '{val_below}'")
-                    if val_below and val_below.lower() not in ['nan', 'none', 'null', '0']:
-                        return val_below
+                    st.success(f"Matched Day {target_day} at Row {r_idx}, Col {c_idx}! Below: '{val_below}'")
+                    return val_below
+                    
+        st.error(f"Could not find cell with number '{target_day}' in the returned sheet!")
     except Exception as e:
-        st.error(f"Fetch Error: {e}")
+        st.error(f"Google Sheet Fetch Error: {str(e)}")
         
     return "None Assigned"
     
