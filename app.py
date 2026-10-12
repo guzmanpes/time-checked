@@ -4,7 +4,7 @@ from datetime import datetime, date
 import pytz
 import re
 import requests
-from html.parser import HTMLParser
+import json
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", initial_sidebar_state="collapsed")
@@ -65,39 +65,11 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- STANDARD LIBRARY HTML PARSER CLASS ---
-class GoogleSheetHTMLParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.grid = []
-        self.current_row = []
-        self.in_cell = False
-        self.cell_data = ""
-
-    def handle_starttag(self, tag, attrs):
-        if tag in ['td', 'th']:
-            self.in_cell = True
-            self.cell_data = ""
-        elif tag == 'tr':
-            self.current_row = []
-
-    def handle_endtag(self, tag):
-        if tag in ['td', 'th']:
-            self.in_cell = False
-            self.current_row.append(self.cell_data.strip())
-        elif tag == 'tr':
-            if any(self.current_row):
-                self.grid.append(self.current_row)
-
-    def handle_data(self, data):
-        if self.in_cell:
-            self.cell_data += data
-
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Parses the published Google Sheet HTML table grid using Python's built-in html.parser.
-    Finds today's day number and retrieves the duty assignment directly beneath it.
+    Parses Google Sheets raw JSON endpoint to ensure zero column shifting from merged cells.
+    Finds the exact day number and returns the duty name directly underneath.
     """
     target_day = str(now_datetime.day)
     
@@ -110,53 +82,50 @@ def get_daily_responsibility(cal_id, now_datetime):
         'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
     }
 
-    # Approach 1: Parse HTML grid with standard library HTMLParser
-    try:
-        html_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/htmlview?gid={OCTOBER_GID}"
-        res = requests.get(html_url, timeout=5)
-        if res.status_code == 200:
-            parser = GoogleSheetHTMLParser()
-            parser.feed(res.text)
-            grid = parser.grid
-            
-            # Locate target day number
-            for r_idx, row in enumerate(grid):
-                for c_idx, cell in enumerate(row):
-                    clean_cell = cell.strip()
-                    if clean_cell == target_day or clean_cell == f"{target_day}.0":
-                        # Scan subsequent rows directly at or near this column index
-                        for r_offset in range(1, 5):
-                            if r_idx + r_offset < len(grid):
-                                sub_row = grid[r_idx + r_offset]
-                                for c_offset in [0, -1, 1, -2, 2]:
-                                    target_c = c_idx + c_offset
-                                    if 0 <= target_c < len(sub_row):
-                                        val = sub_row[target_c].strip()
-                                        if val and any(c.isalpha() for c in val):
-                                            if val.lower() not in ignored_words:
-                                                return val
-    except Exception:
-        pass
+    # Query structured JSON matrix directly from Google Visualization API
+    json_urls = [
+        f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:json&gid={OCTOBER_GID}",
+        f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:json&sheet=OCT"
+    ]
 
-    # Approach 2: CSV Fallback
-    try:
-        csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
-        df = pd.read_csv(csv_url, header=None).fillna("").astype(str)
-        for r_idx in range(len(df)):
-            for c_idx in range(len(df.columns)):
-                cell_val = df.iloc[r_idx, c_idx].strip()
-                if re.match(rf"^{target_day}(\.0)?$", cell_val):
-                    for r_offset in range(1, 5):
-                        if r_idx + r_offset < len(df):
-                            for c_offset in [0, -1, 1]:
-                                target_c = c_idx + c_offset
-                                if 0 <= target_c < len(df.columns):
-                                    val = df.iloc[r_idx + r_offset, target_c].strip()
-                                    if val and any(c.isalpha() for c in val):
-                                        if val.lower() not in ignored_words:
-                                            return val
-    except Exception:
-        pass
+    for url in json_urls:
+        try:
+            res = requests.get(url, timeout=5)
+            if res.status_code == 200:
+                # Strip Google's JSON wrapper padding
+                json_str = res.text.split("google.visualization.Query.setResponse(")[1].rsplit(");", 1)[0]
+                data = json.loads(json_str)
+                
+                rows = data.get('table', {}).get('rows', [])
+                
+                # Reconstruct full cell grid
+                grid = []
+                for row in rows:
+                    r_data = []
+                    for c in row.get('c', []):
+                        if c and 'v' in c and c['v'] is not None:
+                            r_data.append(str(c['v']).strip())
+                        else:
+                            r_data.append("")
+                    grid.append(r_data)
+                
+                # Find date number cell (e.g. '20')
+                for r_idx, row in enumerate(grid):
+                    for c_idx, cell in enumerate(row):
+                        clean_cell = cell.split('.')[0]
+                        if clean_cell == target_day:
+                            # Scan rows below directly in this column and adjacent merged columns
+                            for r_offset in range(1, 5):
+                                if r_idx + r_offset < len(grid):
+                                    for c_offset in [0, -1, 1]:
+                                        t_c = c_idx + c_offset
+                                        if 0 <= t_c < len(grid[r_idx + r_offset]):
+                                            val = grid[r_idx + r_offset][t_c]
+                                            if val and any(char.isalpha() for char in val):
+                                                if val.lower() not in ignored_words:
+                                                    return val
+        except Exception:
+            continue
 
     return "None Assigned"
 
@@ -190,7 +159,7 @@ def update_dashboard():
     rounded_minute = (now.minute // 5) * 5
     current_slot = now.replace(minute=rounded_minute, second=0, microsecond=0).strftime("%H:%M")
 
-    # Fetch dynamic duty from Calendar sheet
+    # Fetch dynamic duty from Calendar sheet ("Genesis")
     daily_duty = get_daily_responsibility(CALENDAR_SHEET_ID, now)
 
     # --- HEADER ---
