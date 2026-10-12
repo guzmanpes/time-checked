@@ -3,6 +3,8 @@ import pandas as pd
 from datetime import datetime, date
 import pytz
 import re
+import requests
+from bs4 import BeautifulSoup
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", initial_sidebar_state="collapsed")
@@ -64,18 +66,12 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 4. CALENDAR LOOKUP FUNCTION ---
-# --- 4. CALENDAR LOOKUP FUNCTION ---
-# --- 4. CALENDAR LOOKUP FUNCTION ---
-# --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Parses Google Sheets Published HTML view to capture styled/formatted cell values
-    that Google's raw CSV export drops.
+    Parses Google Sheet HTML web table directly using BeautifulSoup.
+    Guarantees text extraction from dark-themed or styled calendar grids.
     """
     target_day = str(now_datetime.day)
-    
-    # Target Google Sheet Published HTML view
-    html_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/htmlview?gid={OCTOBER_GID}"
     
     ignored_words = {
         'nan', 'none', 'null', '0', '2026', 'notes',
@@ -85,70 +81,42 @@ def get_daily_responsibility(cal_id, now_datetime):
         'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
     }
 
+    url = f"https://docs.google.com/spreadsheets/d/{cal_id}/htmlview?gid={OCTOBER_GID}"
+    
     try:
-        res = requests.get(html_url, timeout=5)
-        if res.status_code == 200:
-            parser = GoogleSheetHTMLParser()
-            parser.feed(res.text)
-            grid = parser.grid
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Scan table rows for target day '20'
-            for r_idx, row in enumerate(grid):
-                for c_idx, cell in enumerate(row):
-                    clean_cell = cell.strip().split('.')[0]
+            # Reconstruct HTML matrix from <tr> and <td>
+            matrix = []
+            for tr in soup.find_all('tr'):
+                row_data = [td.get_text(strip=True) for td in tr.find_all(['td', 'th'])]
+                if any(row_data):
+                    matrix.append(row_data)
                     
-                    if clean_cell == target_day and len(cell.strip()) <= 4:
-                        # Check the row directly below in the same column
-                        if r_idx + 1 < len(grid):
-                            sub_row = grid[r_idx + 1]
+            # Scan matrix for target day '20'
+            for r_idx, row in enumerate(matrix):
+                for c_idx, cell in enumerate(row):
+                    clean_cell = cell.split('.')[0]
+                    
+                    if clean_cell == target_day and len(cell) <= 4:
+                        # Check the row immediately below (r_idx + 1)
+                        if r_idx + 1 < len(matrix):
+                            sub_row = matrix[r_idx + 1]
                             
-                            # Check column c_idx and immediate adjacent offsets
+                            # Inspect column c_idx and adjacent offsets for merged alignment
                             for c_offset in [0, -1, 1, -2, 2]:
-                                t_c = c_idx + c_offset
-                                if 0 <= t_c < len(sub_row):
-                                    val = sub_row[t_c].strip()
+                                target_c = c_idx + c_offset
+                                if 0 <= target_c < len(sub_row):
+                                    candidate = sub_row[target_c].strip()
                                     
-                                    # If it contains alphabetic text (teacher's name), return it!
-                                    if val and any(char.isalpha() for char in val):
-                                        if val.lower() not in ignored_words:
-                                            return val
+                                    if candidate and any(char.isalpha() for char in candidate):
+                                        if candidate.lower() not in ignored_words:
+                                            return candidate
     except Exception:
         pass
 
-    return "None Assigned"
-    
-    # Try both sheet GID and named sheet exports via gviz
-    urls = [
-        f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&gid={OCTOBER_GID}",
-        f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet=OCT",
-        f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
-    ]
-    
-    for url in urls:
-        try:
-            # Force header=None so top banner rows don't shift row index offsets
-            df = pd.read_csv(url, header=None).fillna("").astype(str)
-            
-            for r_idx in range(len(df)):
-                for c_idx in range(len(df.columns)):
-                    cell_val = str(df.iloc[r_idx, c_idx]).strip()
-                    
-                    # Match exact day number (e.g., '20' or '20.0'), strictly excluding year '2026'
-                    clean_val = cell_val.split('.')[0]
-                    if clean_val == target_day and len(cell_val) <= 4:
-                        # Check up to 2 rows directly below in the same column
-                        for r_offset in [1, 2]:
-                            if r_idx + r_offset < len(df):
-                                duty_candidate = str(df.iloc[r_idx + r_offset, c_idx]).strip()
-                                
-                                # Verify candidate contains alphabetic characters and isn't a month/day header
-                                if duty_candidate and any(c.isalpha() for c in duty_candidate):
-                                    ignored = ['nan', 'none', 'null', '0', 'october', 'tuesday', 'notes']
-                                    if duty_candidate.lower() not in ignored:
-                                        return duty_candidate
-        except Exception:
-            continue
-            
     return "None Assigned"
 
 # --- 5. ROTATION DAY CALCULATION ---
