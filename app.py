@@ -68,34 +68,38 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Finds the exact target day (20) in the grid, but restricts the lookup
-    to the calendar columns (Columns B-H / indices 1-7) to prevent un-merged 
-    ghost column shifts.
+    Locates today's date in the grid and searches the immediate row/column 
+    neighborhood below it to catch names displaced by merged cells.
     """
     target_day = str(now_datetime.day)
     url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
     
+    ignored_words = {'nan', 'none', 'null', '0', 'october', 'notes', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'}
+    
     try:
         df = pd.read_csv(url, header=None).fillna("").astype(str)
         
-        # Search row by row for target day
         for r_idx in range(len(df)):
             for c_idx in range(len(df.columns)):
                 cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
                 
-                # Match exact day 20 (ignoring expanded ghost columns > 8)
-                if cell_val == target_day and c_idx <= 8 and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
-                    # Check row below in same column and adjacent columns (handles merged offset)
+                # Match exact day number (excluding year 2026 or long string cells)
+                if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
+                    
+                    # Scan rows r+1 and r+2
                     for r_offset in [1, 2]:
-                        for c_offset in [0, -1, 1]:
-                            t_r = r_idx + r_offset
-                            t_c = c_idx + c_offset
-                            if t_r < len(df) and 0 <= t_c < len(df.columns):
-                                candidate = str(df.iloc[t_r, t_c]).strip()
-                                # Check if cell is an actual teacher name
-                                if candidate and any(c.isalpha() for c in candidate):
-                                    if candidate.lower() not in ['nan', 'none', 'null', '0', 'october', 'notes']:
-                                        return candidate
+                        t_r = r_idx + r_offset
+                        if t_r < len(df):
+                            # Scan surrounding columns (from c_idx - 12 to c_idx + 2) to catch shifted merged cells
+                            for c_offset in range(-12, 3):
+                                t_c = c_idx + c_offset
+                                if 0 <= t_c < len(df.columns):
+                                    candidate = str(df.iloc[t_r, t_c]).strip()
+                                    
+                                    # Ensure cell contains letters and is not a header keyword or date number
+                                    if candidate and any(char.isalpha() for char in candidate):
+                                        if candidate.lower() not in ignored_words:
+                                            return candidate
     except Exception:
         pass
         
