@@ -12,7 +12,7 @@ SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
 CALENDAR_SHEET_ID = "1j0YO44sn1D5jerX--ycQpwS96utTBPgDXW96ro0DG44"  # Personal Gmail Sheet ID
 OCTOBER_GID = "1235635239"  # Active October Tab GID
 
-ANCHOR_DATE = date(2026, 10, 19) 
+ANCHOR_DATE = date(2026, 10, 26) 
 
 # --- 3. CUSTOM THEMING (CSS) ---
 st.markdown("""
