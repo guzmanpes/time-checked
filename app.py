@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, time
 import pytz
 import requests
 import urllib.parse
@@ -69,7 +69,16 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. CALENDAR LOOKUP FUNCTION ---
+# --- 4. SIDEBAR DEBUG OVERRIDE ---
+with st.sidebar:
+    st.header("Schedule Preview / Debug")
+    use_debug = st.toggle("Enable Test Date & Time", value=False)
+    if use_debug:
+        debug_date = st.date_input("Test Date", value=date(2026, 11, 16))
+        debug_time = st.time_input("Test Time", value=time(10, 15))
+        st.caption("Turn off the toggle above to return to the live Pacific clock.")
+
+# --- 5. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
     Fetches the active month's sheet using its exact GID if mapped in MONTH_GIDS,
@@ -110,14 +119,13 @@ def get_daily_responsibility(cal_id, now_datetime):
         try:
             df = pd.read_csv(csv_url, header=None).fillna("").astype(str)
             
-            # If using a fallback tab-name URL, verify the sheet actually contains this month's header
-            # (prevents GViz from silently serving October when a tab name doesn't match)
+            # Verify month header when using fallback tab-name queries
             if not is_exact_gid:
                 sheet_text = " ".join(df.values.flatten()).lower()
                 if current_month_full not in sheet_text and current_month_abbr not in sheet_text:
                     continue
 
-            # Scan 2D grid line-by-line for current day number
+            # Scan 2D grid line-by-line for target day number
             for r_idx in range(len(df)):
                 for c_idx in range(len(df.columns)):
                     raw_cell = str(df.iloc[r_idx, c_idx]).strip()
@@ -140,7 +148,7 @@ def get_daily_responsibility(cal_id, now_datetime):
 
     return "None Assigned"
 
-# --- 5. ROTATION DAY CALCULATION ---
+# --- 6. ROTATION DAY CALCULATION ---
 def get_current_rotation_day(today_date, anchor_date):
     if today_date < anchor_date:
         return "Day 1"
@@ -149,13 +157,16 @@ def get_current_rotation_day(today_date, anchor_date):
     rotation_num = ((total_school_days - 1) % 10) + 1
     return f"Day {rotation_num}"
 
-# --- 6. DASHBOARD MAIN LOOP ---
+# --- 7. DASHBOARD MAIN LOOP ---
 @st.fragment(run_every=5)
 def update_dashboard():
     local_tz = pytz.timezone('US/Pacific') 
     
-    # LIVE REAL-TIME CLOCK (Pacific Time)
-    now = datetime.now(local_tz)
+    # Select either sidebar test clock or live real-time clock
+    if use_debug:
+        now = local_tz.localize(datetime.combine(debug_date, debug_time))
+    else:
+        now = datetime.now(local_tz)
     
     current_date_str = now.strftime("%B %d, %Y")
     current_day_of_week = now.strftime("%A")
@@ -175,7 +186,8 @@ def update_dashboard():
 
     # --- HEADER ---
     st.markdown(f"<h1>PHELAN FALCONS LIVE DAILY SCHEDULE</h1>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align: center; color: #1E90FF; font-size: 17px; font-weight: bold; margin-top: -5px; margin-bottom: 8px;'>{display_day}, {current_date_str} | {now.strftime('%I:%M:%S %p')}</p>", unsafe_allow_html=True)
+    mode_badge = " [PREVIEW MODE]" if use_debug else ""
+    st.markdown(f"<p style='text-align: center; color: #1E90FF; font-size: 17px; font-weight: bold; margin-top: -5px; margin-bottom: 8px;'>{display_day}, {current_date_str} | {now.strftime('%I:%M:%S %p')}{mode_badge}</p>", unsafe_allow_html=True)
 
     # --- LOAD MAIN SCHEDULE SHEET ---
     try:
@@ -226,5 +238,5 @@ def update_dashboard():
     else:
         st.error("Missing 'Time' column in Google Sheet.")
 
-# --- 7. RUN DASHBOARD ---
+# --- 8. RUN DASHBOARD ---
 update_dashboard()
