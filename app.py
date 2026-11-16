@@ -10,9 +10,8 @@ st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", ini
 # --- 2. SETTINGS & SHEET IDs ---
 SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
 CALENDAR_SHEET_ID = "1j0YO44sn1D5jerX--ycQpwS96utTBPgDXW96ro0DG44"  # Personal Gmail Sheet ID
-OCTOBER_GID = "1235635239"  # Active October Tab GID
 
-ANCHOR_DATE = date(2026, 10, 26) 
+ANCHOR_DATE = date(2026, 5, 25) 
 
 # --- 3. CUSTOM THEMING (CSS) ---
 st.markdown("""
@@ -63,19 +62,24 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. CALENDAR LOOKUP FUNCTION ---
+# --- 4. CALENDAR LOOKUP FUNCTION (AUTO-DETECTS MONTH TAB) ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Pulls live duty assignments directly from the public Google Sheet CSV endpoint.
-    Scans the 2D matrix for the current day of the month.
+    Dynamically selects the current month's tab (e.g., 'NOV', 'DEC') 
+    and scans the 2D matrix for the current day of the month.
     """
     target_day = str(now_datetime.day)
-    csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={OCTOBER_GID}"
+    
+    # Dynamically resolves to 'NOV' for November, 'DEC' for December, etc.
+    # (Change "%b" to "%B" if your sheet tabs use full month names like 'NOVEMBER')
+    month_tab = now_datetime.strftime("%b").upper()
+    
+    csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={month_tab}"
     
     ignored_words = {
-        'nan', 'none', 'null', '0', '2026', 'notes',
-        'october', 'january', 'february', 'march', 'april', 'may', 'june',
-        'july', 'august', 'september', 'november', 'december',
+        'nan', 'none', 'null', '0', '2026', '2027', 'notes',
+        'october', 'november', 'december', 'january', 'february', 'march', 
+        'april', 'may', 'june', 'july', 'august', 'september',
         'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
         'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
     }
