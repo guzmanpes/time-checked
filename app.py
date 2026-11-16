@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, date
 import pytz
 import requests
+import urllib.parse
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", initial_sidebar_state="collapsed")
@@ -62,19 +63,20 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. CALENDAR LOOKUP FUNCTION (AUTO-DETECTS MONTH TAB) ---
+# --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Dynamically selects the current month's tab (e.g., 'NOV', 'DEC') 
-    and scans the 2D matrix for the current day of the month.
+    Dynamically targets tabs formatted as 'November 2026', 'NOVEMBER 2026', 
+    or 'Nov 2026' and scans the 2D matrix for the current day of the month.
     """
     target_day = str(now_datetime.day)
     
-    # Dynamically resolves to 'NOV' for November, 'DEC' for December, etc.
-    # (Change "%b" to "%B" if your sheet tabs use full month names like 'NOVEMBER')
-    month_tab = now_datetime.strftime("%b").upper()
-    
-    csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={month_tab}"
+    tab_candidates = [
+        now_datetime.strftime("%B %Y"),          # e.g., "November 2026"
+        now_datetime.strftime("%B %Y").upper(),  # e.g., "NOVEMBER 2026"
+        now_datetime.strftime("%b %Y"),          # e.g., "Nov 2026"
+        now_datetime.strftime("%b %Y").upper()   # e.g., "NOV 2026"
+    ]
     
     ignored_words = {
         'nan', 'none', 'null', '0', '2026', '2027', 'notes',
@@ -84,28 +86,32 @@ def get_daily_responsibility(cal_id, now_datetime):
         'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
     }
 
-    try:
-        df = pd.read_csv(csv_url, header=None).fillna("").astype(str)
+    for tab_name in tab_candidates:
+        encoded_tab = urllib.parse.quote(tab_name)
+        csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}"
         
-        # Scan 2D grid line-by-line for current day number
-        for r_idx in range(len(df)):
-            for c_idx in range(len(df.columns)):
-                cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
-                
-                if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
-                    # Scan rows directly beneath in same column and adjacent offsets
-                    for r_offset in [1, 2]:
-                        if r_idx + r_offset < len(df):
-                            for c_offset in [0, -1, 1, -2, 2]:
-                                t_c = c_idx + c_offset
-                                if 0 <= t_c < len(df.columns):
-                                    candidate = str(df.iloc[r_idx + r_offset, t_c]).strip()
-                                    
-                                    if candidate and any(char.isalpha() for char in candidate):
-                                        if candidate.lower() not in ignored_words:
-                                            return candidate
-    except Exception:
-        pass
+        try:
+            df = pd.read_csv(csv_url, header=None).fillna("").astype(str)
+            
+            # Scan 2D grid line-by-line for current day number
+            for r_idx in range(len(df)):
+                for c_idx in range(len(df.columns)):
+                    cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
+                    
+                    if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
+                        # Scan rows directly beneath in same column and adjacent offsets
+                        for r_offset in [1, 2]:
+                            if r_idx + r_offset < len(df):
+                                for c_offset in [0, -1, 1, -2, 2]:
+                                    t_c = c_idx + c_offset
+                                    if 0 <= t_c < len(df.columns):
+                                        candidate = str(df.iloc[r_idx + r_offset, t_c]).strip()
+                                        
+                                        if candidate and any(char.isalpha() for char in candidate):
+                                            if candidate.lower() not in ignored_words:
+                                                return candidate
+        except Exception:
+            continue
 
     return "None Assigned"
 
@@ -148,7 +154,7 @@ def update_dashboard():
 
     # --- LOAD MAIN SCHEDULE SHEET ---
     try:
-        safe_sheet_name = current_sheet.replace(" ", "%20")
+        safe_sheet_name = urllib.parse.quote(current_sheet)
         url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={safe_sheet_name}"
         df = pd.read_csv(url).astype(object)
         df.columns = df.columns.str.strip()
