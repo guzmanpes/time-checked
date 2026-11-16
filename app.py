@@ -10,7 +10,13 @@ st.set_page_config(page_title="Phelan Falcons Live Schedule", layout="wide", ini
 
 # --- 2. SETTINGS & SHEET IDs ---
 SHEET_ID = "1N3QLjiX4o8IwsDtGiJno-uQQ4ySijRXdy7Z7ec2kAdw"
-CALENDAR_SHEET_ID = "1j0YO44sn1D5jerX--ycQpwS96utTBPgDXW96ro0DG44"  # Personal Gmail Sheet ID
+CALENDAR_SHEET_ID = "1j0YO44sn1D5jerX--ycQpwS96utTBPgDXW96ro0DG44"
+
+# Map exact tab GIDs here (add future months as you create them)
+MONTH_GIDS = {
+    (2026, 10): "1235635239",
+    (2026, 11): "1793927444",
+}
 
 ANCHOR_DATE = date(2026, 5, 25) 
 
@@ -66,17 +72,12 @@ st.markdown("""
 # --- 4. CALENDAR LOOKUP FUNCTION ---
 def get_daily_responsibility(cal_id, now_datetime):
     """
-    Dynamically targets tabs formatted as 'November 2026', 'NOVEMBER 2026', 
-    or 'Nov 2026' and scans the 2D matrix for the current day of the month.
+    Fetches the active month's sheet using its exact GID if mapped in MONTH_GIDS,
+    otherwise falls back to searching by tab name. Scans the 2D matrix for today's date.
     """
     target_day = str(now_datetime.day)
-    
-    tab_candidates = [
-        now_datetime.strftime("%B %Y"),          # e.g., "November 2026"
-        now_datetime.strftime("%B %Y").upper(),  # e.g., "NOVEMBER 2026"
-        now_datetime.strftime("%b %Y"),          # e.g., "Nov 2026"
-        now_datetime.strftime("%b %Y").upper()   # e.g., "NOV 2026"
-    ]
+    current_month_full = now_datetime.strftime("%B").lower()
+    current_month_abbr = now_datetime.strftime("%b").lower()
     
     ignored_words = {
         'nan', 'none', 'null', '0', '2026', '2027', 'notes',
@@ -86,19 +87,43 @@ def get_daily_responsibility(cal_id, now_datetime):
         'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'
     }
 
-    for tab_name in tab_candidates:
-        encoded_tab = urllib.parse.quote(tab_name)
-        csv_url = f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}"
+    urls_to_try = []
+    
+    # 1. Priority: Direct GID export (prevents GViz silent fallback to wrong tab)
+    gid = MONTH_GIDS.get((now_datetime.year, now_datetime.month))
+    if gid:
+        urls_to_try.append((f"https://docs.google.com/spreadsheets/d/{cal_id}/export?format=csv&gid={gid}", True))
         
+    # 2. Fallback: Tab name queries for future unmapped months
+    tab_candidates = [
+        now_datetime.strftime("%B %Y"),          # "November 2026"
+        now_datetime.strftime("%B %Y").upper(),  # "NOVEMBER 2026"
+        now_datetime.strftime("%b %Y"),          # "Nov 2026"
+        now_datetime.strftime("%b").upper(),     # "NOV"
+        now_datetime.strftime("%B").upper()      # "NOVEMBER"
+    ]
+    for tab in tab_candidates:
+        encoded = urllib.parse.quote(tab)
+        urls_to_try.append((f"https://docs.google.com/spreadsheets/d/{cal_id}/gviz/tq?tqx=out:csv&sheet={encoded}", False))
+
+    for csv_url, is_exact_gid in urls_to_try:
         try:
             df = pd.read_csv(csv_url, header=None).fillna("").astype(str)
             
+            # If using a fallback tab-name URL, verify the sheet actually contains this month's header
+            # (prevents GViz from silently serving October when a tab name doesn't match)
+            if not is_exact_gid:
+                sheet_text = " ".join(df.values.flatten()).lower()
+                if current_month_full not in sheet_text and current_month_abbr not in sheet_text:
+                    continue
+
             # Scan 2D grid line-by-line for current day number
             for r_idx in range(len(df)):
                 for c_idx in range(len(df.columns)):
-                    cell_val = str(df.iloc[r_idx, c_idx]).strip().split('.')[0]
+                    raw_cell = str(df.iloc[r_idx, c_idx]).strip()
+                    cell_val = raw_cell.split('.')[0]
                     
-                    if cell_val == target_day and len(str(df.iloc[r_idx, c_idx]).strip()) <= 4:
+                    if cell_val == target_day and len(raw_cell) <= 4:
                         # Scan rows directly beneath in same column and adjacent offsets
                         for r_offset in [1, 2]:
                             if r_idx + r_offset < len(df):
