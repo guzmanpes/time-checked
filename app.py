@@ -362,6 +362,35 @@ def load_rotation_sheet(sheet_name):
     return df
 
 
+# Whole-grade names that can appear in a specials column (PE, Art, Library...)
+_GRADE_ALIASES = {
+    "tk": "TK", "transitional kinder": "TK",
+    "k": "K", "kinder": "K", "kindergarten": "K",
+    "1st": "1ST", "first": "1ST", "2nd": "2ND", "second": "2ND", "3rd": "3RD", "third": "3RD",
+    "4th": "4TH", "fourth": "4TH", "5th": "5TH", "fifth": "5TH",
+}
+
+
+def whole_grade(value):
+    """'1st Grade', '2nd', 'Kinder', 'TK' -> grade key. Single-class entries ('1st - Nevarez') -> None."""
+    v = re.sub(r"\s+", " ", str(value).strip().lower())
+    v = re.sub(r"\s*grade(s)?$", "", v).strip()
+    return _GRADE_ALIASES.get(v)
+
+
+def apply_specials(row, grade_cols, special_cols):
+    """If a specials slot names a whole grade, show that special on the grade's card."""
+    row = dict(row)
+    by_key = {c.strip().upper(): c for c in grade_cols}
+    by_key.update({"K": by_key.get("K"), "TK": by_key.get("TK")})
+    for sc in special_cols:
+        g = whole_grade(row.get(sc, ""))
+        target = by_key.get(g) if g else None
+        if target:
+            row[target] = sc.strip()
+    return row
+
+
 def render_row(teams_list, row):
     if teams_list:
         cols = st.columns(len(teams_list))
@@ -462,6 +491,7 @@ def update_dashboard():
     other_tier = [c for c in all_cols if c not in used]
 
     st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
+    row = apply_specials(row, top_tier + mid_tier + bot_tier, other_tier)
     for tier in (top_tier, mid_tier, bot_tier, other_tier):
         render_row(tier, row)
     render_duty_card(daily_duty)
