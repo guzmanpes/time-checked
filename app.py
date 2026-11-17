@@ -57,6 +57,65 @@ SCHOOL_HOLIDAYS = sorted(set(
 ))
 LAST_DAY_OF_SCHOOL = date(2027, 6, 4)
 
+# --- SPECIAL SCHEDULE WEEKS (override the 10-day rotation on specific dates) ---
+# Each entry: (start "H:MM", end "H:MM", what to show). Times are 24-hour.
+# Taken from "2026-2027 Bell Schedule", page 3: November Conference Minimum Day.
+_CONF_GRADES = {
+    "TK":  [("8:00", "9:30", "Class"),
+            ("9:30", "9:50", "Recess (Dubon)"), ("9:50", "10:20", "Class"),
+            ("10:20", "10:40", "Recess (Stuart)"), ("10:40", "11:20", "Class"),
+            ("11:20", "11:30", "Dismissal")],
+    "K":   [("8:00", "10:15", "Class"), ("10:15", "10:30", "Recess"),
+            ("10:30", "11:20", "Class"), ("11:20", "11:30", "Dismissal")],
+    "1st": [("8:00", "9:15", "Class"), ("9:15", "9:30", "Recess"), ("9:30", "10:30", "Class"),
+            ("10:30", "10:45", "Nutrition Recess"), ("10:45", "11:45", "Class"),
+            ("11:45", "12:30", "Lunch"), ("12:30", "12:40", "Class"), ("12:40", "12:50", "Dismissal")],
+    "2nd": [("8:00", "9:15", "Class"), ("9:15", "9:30", "Recess"), ("9:30", "10:30", "Class"),
+            ("10:30", "10:45", "Nutrition Recess"), ("10:45", "11:30", "Class"),
+            ("11:30", "12:15", "Lunch"), ("12:15", "12:40", "Class"), ("12:40", "12:50", "Dismissal")],
+    "3rd": [("8:00", "9:30", "Class"), ("9:30", "9:50", "Recess"), ("9:50", "11:15", "Class"),
+            ("11:15", "12:00", "Lunch"), ("12:00", "12:40", "Class"), ("12:40", "12:50", "Dismissal")],
+    "4th": [("8:00", "9:30", "Class"), ("9:30", "9:45", "Recess"), ("9:45", "11:00", "Class"),
+            ("11:00", "11:45", "Lunch"), ("11:45", "12:40", "Class"), ("12:40", "12:50", "Dismissal")],
+    "5th": [("8:00", "9:00", "Class"), ("9:00", "9:15", "Recess"), ("9:15", "10:45", "Class"),
+            ("10:45", "11:30", "Lunch"), ("11:30", "12:40", "Class"), ("12:40", "12:50", "Dismissal")],
+}
+_CONF_PE_TUE_FRI = [("8:00", "8:30", "Prep"), ("8:30", "9:00", "5th Grade"), ("9:00", "9:30", "4th Grade"),
+                    ("9:30", "10:00", "Open"), ("10:00", "10:30", "2nd Grade"), ("10:30", "10:45", "Break"),
+                    ("10:45", "11:15", "1st Grade"), ("11:15", "11:45", "Lunch"), ("12:00", "12:30", "3rd Grade")]
+_CONF_PE_THU = [("8:00", "9:00", "Prep"), ("9:00", "9:30", "4th Grade"), ("9:30", "10:00", "Kinder"),
+                ("10:00", "10:30", "2nd Grade"), ("10:30", "11:15", "Prep"), ("11:15", "11:45", "Lunch"),
+                ("12:00", "12:30", "3rd Grade")]
+_CONF_ART_WED = [("8:00", "8:40", "Prep"), ("8:45", "9:15", "McCallum"), ("9:45", "10:15", "Galdamez"),
+                 ("10:15", "10:45", "Edgerly"), ("10:45", "11:15", "Valenzuela"), ("11:15", "11:45", "McGeary"),
+                 ("12:00", "12:30", "Lunch")]
+_CONF_ART_THU = [("8:00", "8:30", "Prep"), ("8:45", "9:15", "TK - Dubon"), ("9:15", "9:45", "Snoke"),
+                 ("9:45", "10:15", "Villalobos"), ("10:15", "11:45", "Open"), ("12:00", "12:30", "Lunch")]
+
+SPECIAL_SCHEDULES = {
+    date(2026, 11, 17): ("Conference Minimum Day", {**_CONF_GRADES, "PE": _CONF_PE_TUE_FRI}),
+    date(2026, 11, 18): ("Conference Minimum Day", {**_CONF_GRADES, "Art": _CONF_ART_WED}),
+    date(2026, 11, 19): ("Conference Minimum Day", {**_CONF_GRADES, "PE": _CONF_PE_THU, "Art": _CONF_ART_THU}),
+    date(2026, 11, 20): ("Conference Minimum Day", {**_CONF_GRADES, "PE": _CONF_PE_TUE_FRI}),
+}
+
+
+def build_special_df(columns):
+    """Turn {column: [(start, end, label), ...]} into the same 5-minute grid as a Day tab."""
+    def t(s):
+        h, m = map(int, s.split(":"))
+        return h * 60 + m
+    start = min(t(seg[0]) for segs in columns.values() for seg in segs)
+    end = max(t(seg[1]) for segs in columns.values() for seg in segs)
+    rows = []
+    for mins in range(start, end, 5):
+        row = {"TIME": f"{mins // 60:02d}:{mins % 60:02d}"}
+        for col, segs in columns.items():
+            row[col] = next((lbl for a, b, lbl in segs if t(a) <= mins < t(b)), "")
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 # --- 3. CUSTOM THEMING (CSS) ---
 st.markdown("""
     <style>
@@ -330,7 +389,11 @@ def update_dashboard():
     school_today = is_school_day(today) and today <= LAST_DAY_OF_SCHOOL
     if school_today:
         rotation_day = f"Day {get_rotation_number(today)}"
-        display_day = f"{now.strftime('%A')} ({rotation_day})"
+        special = SPECIAL_SCHEDULES.get(today)
+        if special:
+            display_day = f"{now.strftime('%A')} ({special[0]})"
+        else:
+            display_day = f"{now.strftime('%A')} ({rotation_day})"
     else:
         nxt = next_school_day(today)
         label = "Weekend" if today.weekday() >= 5 else "No School"
@@ -355,7 +418,11 @@ def update_dashboard():
 
     # --- LOAD MAIN SCHEDULE SHEET ---
     try:
-        df = load_rotation_sheet(rotation_day)
+        if special:
+            df = build_special_df(special[1])
+            rotation_day = special[0]
+        else:
+            df = load_rotation_sheet(rotation_day)
     except Exception:
         st.error(f"Couldn't load Google Sheet tab '{rotation_day}'. Check the tab exists and the sheet is shared.")
         render_duty_card(daily_duty)
